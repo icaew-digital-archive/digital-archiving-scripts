@@ -22,18 +22,19 @@ def calculate_hash(file_path, hash_type='sha1'):
 
 
 def list_files(directory, output_file, hash_type='sha1'):
-    file_list = []
+    row = []
     for root, dirs, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
             hash = calculate_hash(file_path, hash_type)
-            file_list.append([file, hash])
+            row.append([file, hash, '', '', '', '', '', '', '',
+                        '', '', '', '', '', '', '', '', '', '', ''])
 
     with open(output_file, 'w', newline='') as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(['filename', hash_type, 'Title', 'Description', 'SecurityDescriptor', 'Title', 'Creator', 'Subject', 'Description',
                         'Publisher', 'Contributor', 'Date', 'Type', 'Format', 'Identifier', 'Source', 'Language', 'Relation', 'Coverage', 'Rights'])
-        writer.writerows(file_list)
+        writer.writerows(row)
 
     print(
         f"File list with {hash_type} checksums successfully saved to {output_file}.")
