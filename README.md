@@ -1,4 +1,4 @@
-# web-archiving-scripts
+# digital-archiving-scripts
 
 A collection of scripts to help with various web-archiving tasks.
 
