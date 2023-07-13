@@ -14,9 +14,9 @@ Contains scripts relating to browsertrix-crawler
 
 Contains a script to reformat the json response from the Internet Archive's CDX API and provides better duplicate removal. Outputs to a .txt file.
 
-## pdf decrypt
+## opex scripts
 
-Contains a script to decrypt a folder of PDFs using pikepdf.
+Contains scripts to partially automate the production of OPEX XML files for use with Preservica.
 
 ## pypreservica scripts
 
