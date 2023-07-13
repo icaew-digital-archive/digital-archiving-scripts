@@ -1,6 +1,6 @@
 # digital-archiving-scripts
 
-A collection of scripts to help with various web-archiving tasks.
+A collection of scripts to help with various digital archiving tasks.
 
 ## archived scripts
 
