@@ -24,7 +24,7 @@ Contains various scripts that utilise Preservica's API using pyPreservica.
 
 ## sitemap tools
 
-Contains two scripts. One script produces a plain list of URLs from an XML sitemap (outputs to .txt, .html, or terminal). One script creates a HTML list from a text file input.
+Contains a script to produce a plain list of URLs from an XML sitemap (outputs to .txt, .html, or terminal).
 
 ## warc_reader.py
 
