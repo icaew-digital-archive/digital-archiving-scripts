@@ -17,7 +17,7 @@ def get_files_in_folder(folder_path):
     return file_list
 
 
-def create_xml_file(folder_path, xml_filename):
+def create_xml_file(folder_path, xml_filename, include_descriptive_metadata):
     files = sorted(get_files_in_folder(folder_path))
 
     opex_file = ''
@@ -31,22 +31,8 @@ def create_xml_file(folder_path, xml_filename):
             if i != len(files) - 1:  # If not the final line, add a newline char
                 opex_file += '\n'
 
-    template = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <opex:OPEXMetadata
-        xmlns:opex="http://www.openpreservationexchange.org/opex/v1.1">
-        <opex:Transfer>
-            <opex:SourceID></opex:SourceID>
-            <opex:Manifest>
-                <opex:Files>
-{opex_file}
-                </opex:Files>
-            </opex:Manifest>
-        </opex:Transfer>
-        <opex:Properties>
-            <opex:Title></opex:Title>
-            <opex:Description></opex:Description>
-            <opex:SecurityDescriptor></opex:SecurityDescriptor>
-        </opex:Properties>
+    if include_descriptive_metadata:
+        descriptive_metadata = """
         <opex:DescriptiveMetadata>
             <oai_dc:dc xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/oai_dc/ oai_dc.xsd"
                 xmlns:dc="http://purl.org/dc/elements/1.1/"
@@ -68,7 +54,26 @@ def create_xml_file(folder_path, xml_filename):
                 <dc:coverage></dc:coverage>
                 <dc:rights></dc:rights>
             </oai_dc:dc>
-        </opex:DescriptiveMetadata>
+        </opex:DescriptiveMetadata>"""
+    else:
+        descriptive_metadata = ""
+
+    template = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <opex:OPEXMetadata
+        xmlns:opex="http://www.openpreservationexchange.org/opex/v1.1">
+        <opex:Transfer>
+            <opex:SourceID></opex:SourceID>
+            <opex:Manifest>
+                <opex:Files>
+{opex_file}
+                </opex:Files>
+            </opex:Manifest>
+        </opex:Transfer>
+        <opex:Properties>
+            <opex:Title></opex:Title>
+            <opex:Description></opex:Description>
+            <opex:SecurityDescriptor></opex:SecurityDescriptor>
+        </opex:Properties>{descriptive_metadata}
     </opex:OPEXMetadata>"""
 
     with open(os.path.join(folder_path, xml_filename + '.opex'), 'w') as xml_file:
@@ -82,12 +87,15 @@ def main():
         description='Generate an OPEX XML file based on files in a folder.')
     parser.add_argument(
         'folder_path', help='Path to the folder containing the files')
+    parser.add_argument('--descriptive_metadata', '-d', action='store_true',
+                        help='Include this flag to include the descriptive metadata in the OPEX XML output')
     args = parser.parse_args()
 
     folder_path = args.folder_path
+    include_descriptive_metadata = args.include_descriptive_metadata
     xml_filename = os.path.basename(folder_path)
 
-    create_xml_file(folder_path, xml_filename)
+    create_xml_file(folder_path, xml_filename, include_descriptive_metadata)
 
 
 if __name__ == '__main__':
