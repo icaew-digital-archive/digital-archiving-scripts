@@ -17,7 +17,7 @@ def get_files_in_folder(folder_path):
     return file_list
 
 
-def create_xml_file(folder_path, xml_filename, include_descriptive_metadata):
+def create_xml_file(folder_path, xml_filename, descriptive_metadata):
     files = sorted(get_files_in_folder(folder_path))
 
     opex_file = ''
@@ -31,7 +31,7 @@ def create_xml_file(folder_path, xml_filename, include_descriptive_metadata):
             if i != len(files) - 1:  # If not the final line, add a newline char
                 opex_file += '\n'
 
-    if include_descriptive_metadata:
+    if descriptive_metadata:
         descriptive_metadata = """
         <opex:DescriptiveMetadata>
             <oai_dc:dc xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/oai_dc/ oai_dc.xsd"
@@ -92,10 +92,10 @@ def main():
     args = parser.parse_args()
 
     folder_path = args.folder_path
-    include_descriptive_metadata = args.include_descriptive_metadata
+    descriptive_metadata = args.descriptive_metadata
     xml_filename = os.path.basename(folder_path)
 
-    create_xml_file(folder_path, xml_filename, include_descriptive_metadata)
+    create_xml_file(folder_path, xml_filename, descriptive_metadata)
 
 
 if __name__ == '__main__':
