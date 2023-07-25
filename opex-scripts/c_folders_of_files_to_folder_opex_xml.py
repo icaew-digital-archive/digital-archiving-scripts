@@ -17,7 +17,7 @@ def get_files_in_folder(folder_path):
     return file_list
 
 
-def create_xml_file(folder_path, xml_filename, descriptive_metadata):
+def create_xml_file(folder_path, xml_filename, exclude_descriptive_metadata):
     files = sorted(get_files_in_folder(folder_path))
 
     opex_file = ''
@@ -31,7 +31,9 @@ def create_xml_file(folder_path, xml_filename, descriptive_metadata):
             if i != len(files) - 1:  # If not the final line, add a newline char
                 opex_file += '\n'
 
-    if descriptive_metadata:
+    if exclude_descriptive_metadata:
+        descriptive_metadata = ""
+    else:
         descriptive_metadata = """
         <opex:DescriptiveMetadata>
             <oai_dc:dc xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/oai_dc/ oai_dc.xsd"
@@ -55,8 +57,6 @@ def create_xml_file(folder_path, xml_filename, descriptive_metadata):
                 <dc:rights></dc:rights>
             </oai_dc:dc>
         </opex:DescriptiveMetadata>"""
-    else:
-        descriptive_metadata = ""
 
     template = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <opex:OPEXMetadata
@@ -87,15 +87,15 @@ def main():
         description='Generate an OPEX XML file based on files in a folder.')
     parser.add_argument(
         'folder_path', help='Path to the folder containing the files')
-    parser.add_argument('--descriptive_metadata', '-d', action='store_true',
-                        help='Include this flag to include the descriptive metadata in the OPEX XML output')
+    parser.add_argument('--exclude_descriptive_metadata', '-d', action='store_true',
+                        help='Exclude the descriptive metadata in the OPEX XML output')
     args = parser.parse_args()
 
     folder_path = args.folder_path
-    descriptive_metadata = args.descriptive_metadata
+    exclude_descriptive_metadata = args.exclude_descriptive_metadata
     xml_filename = os.path.basename(folder_path)
 
-    create_xml_file(folder_path, xml_filename, descriptive_metadata)
+    create_xml_file(folder_path, xml_filename, exclude_descriptive_metadata)
 
 
 if __name__ == '__main__':
