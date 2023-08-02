@@ -56,19 +56,12 @@ def read_csv_file(csv_file, output_dir, include_full_dc):
         header = next(reader)
 
         # Get fixity type from the header
-        if header[1] == 'md5':
-            fixity_type = 'MD5'
-        else:
-            fixity_type = 'SHA-1'
+        fixity_type = 'MD5' if header[1] == 'md5' else 'SHA-1'
 
         header = header[5:]  # Remove the first 5 columns from the headers
 
         for row in reader:
-            filename = row[0]  # Get filename for OPEX file
-            checksum = row[1]  # Get checksum
-            title = row[2]  # Get Title
-            description = row[3]  # Get Description
-            security_descriptor = row[4]  # Get SecurityDescriptor
+            filename, checksum, title, description, security_descriptor = row[:5]  # Unpack the first 5 columns from the row
             row = row[5:]  # Remove the first 5 columns from the rows
 
             output_path = os.path.join(output_dir, filename + '.opex')
