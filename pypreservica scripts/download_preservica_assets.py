@@ -2,34 +2,62 @@
 # -*- coding: utf-8 -*-
 
 """
-Obtains child asset references from below a given parent folder and then downloads the assets individually.
-Specifically created to download WARC files.
+Download Preservica assets from a given parent folder.
+
+Enter "root" as argument to preservica_folder_ref if needing to download from the root level.
+
+usage: download_preservica_assets.py [-h] preservica_folder_ref download_folder
 """
 
-import csv
+import argparse
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from pyPreservica import *
 
-# Override is needed as the function will load local username instead of from the .env file
+# Load configuration from environment variables
 load_dotenv(override=True)
-
 USERNAME = os.getenv('USERNAME')
 PASSWORD = os.getenv('PASSWORD')
 TENANT = os.getenv('TENANT')
 SERVER = os.getenv('SERVER')
 
-FOLDER_REF = '5b2391ee-b6cb-4091-8339-83d1f56fa38b'
 
-client = EntityAPI(username=USERNAME,
-                   password=PASSWORD, tenant=TENANT, server=SERVER)
+def main(args):
+    if not os.path.exists(args.download_folder):
+        os.makedirs(args.download_folder)
 
-folder = client.folder(FOLDER_REF)
+    client = EntityAPI(username=USERNAME, password=PASSWORD,
+                       tenant=TENANT, server=SERVER)
 
-# Get child assets individually and download them
-for asset in filter(only_assets, client.all_descendants(folder.reference)):
-    print(f'Downloading {asset.title}...')
-    asset = client.asset(asset.reference)
-    # Preservica strips the .gz extension from asset.title, this adds it back on
-    client.download(asset, asset.title + '.gz')
+    # Deal with special root case
+    if args.preservica_folder_ref == 'root':
+        args.preservica_folder_ref = None
+
+    for asset in filter(only_assets, client.all_descendants(args.preservica_folder_ref)):
+        print(f'Downloading {asset.title} ({asset.reference})')
+
+        for representation in client.representations(asset):
+            for content_object in client.content_objects(representation):
+                for generation in client.generations(content_object):
+                    for bitstream in generation.bitstreams:
+                        download_path = Path(
+                            args.download_folder) / bitstream.filename
+                        try:
+                            client.bitstream_content(bitstream, download_path)
+                        except Exception as e:
+                            print(
+                                f"Error downloading {bitstream.filename}: {e}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Download Preservica assets from a given parent folder")
+    parser.add_argument("preservica_folder_ref",
+                        help="Preservica folder reference. Example: \"bb45f999-7c07-4471-9c30-54b057c500ff\". Enter \"root\" if needing to get metadata from the root folder")
+    parser.add_argument("download_folder",
+                        help="Folder to save the downloaded assets")
+    args = parser.parse_args()
+
+    main(args)
