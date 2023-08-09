@@ -35,13 +35,18 @@ parser.add_argument('preservica_folder_ref',
 # Parse command-line arguments
 args = parser.parse_args()
 
-for entity in client.all_descendants(args.preservica_folder_ref):
-    print(f"Deleting metadata for assetID: {entity.reference}")
-    if str(entity.entity_type) == 'EntityType.FOLDER':
-        asset = client.folder(entity.reference)
-        client.delete_metadata(
-            asset, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-    if str(entity.entity_type) == 'EntityType.ASSET':
-        asset = client.asset(entity.reference)
-        client.delete_metadata(
-            asset, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+confirmation = input(
+    f"Are you sure you want to delete the metadata for assets in the folder: \"{client.folder(args.preservica_folder_ref).title}\"? (Y/N): ").strip().lower()
+
+if confirmation == 'y':
+
+    for entity in client.all_descendants(args.preservica_folder_ref):
+        print(f"Deleting metadata for assetID: {entity.reference}")
+        if str(entity.entity_type) == 'EntityType.FOLDER':
+            asset = client.folder(entity.reference)
+            client.delete_metadata(
+                asset, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+        if str(entity.entity_type) == 'EntityType.ASSET':
+            asset = client.asset(entity.reference)
+            client.delete_metadata(
+                asset, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
