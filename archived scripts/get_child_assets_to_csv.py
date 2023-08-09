@@ -20,7 +20,7 @@ PASSWORD = os.getenv('PASSWORD')
 TENANT = os.getenv('TENANT')
 SERVER = os.getenv('SERVER')
 
-FOLDER_REF = '5db21e22-1f33-48b5-88c1-a74adbdfe264'
+FOLDER_REF = 'c21de259-8670-4d38-8e61-ebe63512e34c'
 CSV_OUTPUT_FILENAME = 'dublincore.csv'
 
 client = EntityAPI(username=USERNAME,
