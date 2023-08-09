@@ -26,7 +26,7 @@ client = EntityAPI(username=USERNAME,
 
 CSV_OUTPUT_FILENAME = 'testing3.csv'
 # PARENT_FOLDER_REF: None for root, or a specific folder reference number such as - 'a9c9fa31-4842-4ff3-9dad-d0ae2fbe6c28'
-PARENT_FOLDER_REF = None
+PARENT_FOLDER_REF = 'e5407514-3209-4668-874b-4eac4a91b0a8'
 
 
 def main():
@@ -51,7 +51,7 @@ def main():
                 folder_and_assetpath = ''.join(folderpath) + entity.title
             else:
                 folder_and_assetpath = entity.title
-            print(folder_and_assetpath)
+            print(folder_and_assetpath + '\n')
 
             # Folder logic
             if str(entity.entity_type) == 'EntityType.FOLDER':
@@ -76,6 +76,15 @@ def main():
                         xml_string = metadata[1]
                         root = ET.fromstring(xml_string)
                         title_metadata = root[0].text
+                        print(root[0].text)
+                        print(root[1].text)
+                        print(root[2].text)
+                        print(root[3].text)
+                        print(root[4].text)
+                        print(root[5].text)
+                        print(root[6].text)
+                        print(root[7].text)
+                        print(root[8].text)
                     else:
                         title_metadata = ''
 
