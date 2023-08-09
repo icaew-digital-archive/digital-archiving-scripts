@@ -7,8 +7,8 @@ Used in conjunction with a_files_to_csv.py and b_csv_to_opex_xml.py.
 Usage: c_folders_of_files_to_folder_opex_xml.py folder_path
 """
 
-import os
 import argparse
+import os
 
 
 def get_files_in_folder(folder_path):
@@ -34,13 +34,13 @@ def create_xml_file(folder_path, xml_filename, exclude_descriptive_metadata):
     if exclude_descriptive_metadata:
         descriptive_metadata = ""
     else:
-        descriptive_metadata = """
+        descriptive_metadata = f"""
         <opex:DescriptiveMetadata>
             <oai_dc:dc xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/oai_dc/ oai_dc.xsd"
                 xmlns:dc="http://purl.org/dc/elements/1.1/"
                 xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-                <dc:title></dc:title>
+                <dc:title>{xml_filename}</dc:title>
                 <dc:creator></dc:creator>
                 <dc:subject></dc:subject>
                 <dc:description></dc:description>
@@ -91,11 +91,8 @@ def main():
                         help='Exclude the descriptive metadata in the OPEX XML output')
     args = parser.parse_args()
 
-    folder_path = args.folder_path
-    exclude_descriptive_metadata = args.exclude_descriptive_metadata
-    xml_filename = os.path.basename(folder_path)
-
-    create_xml_file(folder_path, xml_filename, exclude_descriptive_metadata)
+    create_xml_file(args.folder_path, os.path.basename(
+        args.folder_path), args.exclude_descriptive_metadata)
 
 
 if __name__ == '__main__':
