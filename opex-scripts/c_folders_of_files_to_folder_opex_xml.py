@@ -91,8 +91,9 @@ def main():
                         help='Exclude the descriptive metadata in the OPEX XML output')
     args = parser.parse_args()
 
-    create_xml_file(args.folder_path, os.path.basename(
-        args.folder_path), args.exclude_descriptive_metadata)
+    folder_path = args.folder_path.rstrip('/') # Strip trailing slash
+
+    create_xml_file(folder_path, os.path.basename(folder_path), args.exclude_descriptive_metadata)
 
 
 if __name__ == '__main__':
