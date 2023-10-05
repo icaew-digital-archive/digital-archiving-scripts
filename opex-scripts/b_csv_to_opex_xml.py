@@ -48,7 +48,7 @@ def generate_metadata(checksum, title, description, security_descriptor, header,
             xmlns:dc="http://purl.org/dc/elements/1.1/"
             xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-{descriptive_metadata.strip()}
+{descriptive_metadata}
         </oai_dc:dc>
     </opex:DescriptiveMetadata>
 </opex:OPEXMetadata>'''
