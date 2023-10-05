@@ -16,12 +16,12 @@ def generate_metadata(checksum, title, description, security_descriptor, header,
     for i, field in enumerate(header):
 
         if allow_empty_duplicates:
-            descriptive_metadata += f'{" " * 12}<{field.strip()}>{row[i]}</{field}>\n'
+            descriptive_metadata += f'{" " * 12}<{field}>{row[i].strip()}</{field}>\n'
         else:
             if field in already_seen and row[i] == '':
                 continue
             else:
-                descriptive_metadata += f'{" " * 12}<{field.strip()}>{row[i]}</{field}>\n'
+                descriptive_metadata += f'{" " * 12}<{field}>{row[i].strip()}</{field}>\n'
 
         if i == len(header) - 1:
             descriptive_metadata = descriptive_metadata.rstrip(
@@ -39,16 +39,16 @@ def generate_metadata(checksum, title, description, security_descriptor, header,
         </opex:Fixities>
     </opex:Transfer>
     <opex:Properties>
-        <opex:Title>{title}</opex:Title>
-        <opex:Description>{description}</opex:Description>
-        <opex:SecurityDescriptor>{security_descriptor}</opex:SecurityDescriptor>
+        <opex:Title>{title.strip()}</opex:Title>
+        <opex:Description>{description.strip()}</opex:Description>
+        <opex:SecurityDescriptor>{security_descriptor.strip()}</opex:SecurityDescriptor>
     </opex:Properties>
     <opex:DescriptiveMetadata>
         <oai_dc:dc xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/oai_dc/ oai_dc.xsd"
             xmlns:dc="http://purl.org/dc/elements/1.1/"
             xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-{descriptive_metadata}
+{descriptive_metadata.strip()}
         </oai_dc:dc>
     </opex:DescriptiveMetadata>
 </opex:OPEXMetadata>'''
