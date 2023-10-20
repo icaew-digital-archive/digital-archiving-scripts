@@ -46,7 +46,7 @@ def main(file_directory, csv_file_path):
         for row in csv_reader:
             if row[0] in file_list:
                 ext = os.path.splitext(row[0])[1]
-                os.rename(row[0], os.path.join(file_directory, row[2].strip() + ext))
+                os.rename(os.path.join(file_directory, row[0]), os.path.join(file_directory, row[2].strip() + ext))
                 print(f"File '{row[0]}' has been renamed to '{os.path.join(file_directory, row[2].strip() + ext)}'.")
 
 if __name__ == "__main__":
