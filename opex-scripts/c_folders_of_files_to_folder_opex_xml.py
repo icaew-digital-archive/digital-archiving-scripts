@@ -70,7 +70,7 @@ def create_xml_file(folder_path, xml_filename, exclude_descriptive_metadata):
             </opex:Manifest>
         </opex:Transfer>
         <opex:Properties>
-            <opex:Title></opex:Title>
+            <opex:Title>{xml_filename}</opex:Title>
             <opex:Description></opex:Description>
             <opex:SecurityDescriptor></opex:SecurityDescriptor>
         </opex:Properties>{descriptive_metadata}
