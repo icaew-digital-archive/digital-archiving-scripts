@@ -22,6 +22,10 @@ Contains scripts to partially automate the production of OPEX XML files for use 
 
 Contains various scripts that utilise Preservica's API using pyPreservica.
 
+## semaphore-helper.py
+
+Uses Semaphore's CLSClient to auto-classify documents and sorts by topic score.
+
 ## sitemap tools
 
 Contains a script to produce a plain list of URLs from an XML sitemap (outputs to .txt, .html, or terminal).
