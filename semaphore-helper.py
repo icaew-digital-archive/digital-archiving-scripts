@@ -69,7 +69,6 @@ def process_file(file_path):
 
 
 def process_semantic_result(output):
-
     # Pre-process string to only consider the response between the following strs
     # Define the start and end strings
     start_str = '<SYSTEM name="Template" value="default"/>'
