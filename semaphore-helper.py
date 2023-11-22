@@ -69,6 +69,17 @@ def process_file(file_path):
 
 
 def process_semantic_result(output):
+
+    # Pre-process string to only consider the response between the following strs
+    # Define the start and end strings
+    start_str = '<SYSTEM name="Template" value="default"/>'
+    end_str = '<ARTICLE>'
+
+    # Use regular expression to find the text between start and end
+    result = re.search(
+        f'{re.escape(start_str)}(.*?){re.escape(end_str)}', output, re.DOTALL)
+    output = result.group(1).strip()
+
     # Process the Semantic Classification result
     pattern = r'<META name="Generic_UPWARD" value="(.*?)"[^>]*? score="(.*?)"'
     matches = re.findall(pattern, output)
