@@ -142,4 +142,5 @@ cython_debug/
 node_modules/
 settings.json
 
-./csclien./test-files
+./csclient
+./test-files
