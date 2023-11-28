@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Download Preservica assets from a given parent folder. Checks SHA1 fixity values from Preservica and local file match.
+Download Preservica assets from a given parent folder. Checks that fixity values from Preservica and local file match.
 
 Enter "root" as argument to preservica_folder_ref if needing to download from the root level.
 
@@ -30,29 +30,27 @@ SERVER = os.getenv('SERVER')
 logging.basicConfig(level=logging.INFO)
 
 
-def calculate_file_sha1(file_path):
-    sha1 = hashlib.sha1()
+def calculate_file_hash(file_path, hash_algorithm):
+    hash_obj = hashlib.new(hash_algorithm)
     with open(file_path, 'rb') as file:
-        # Read and update hash string value in blocks of 4K
         for byte_block in iter(lambda: file.read(4096), b""):
-            sha1.update(byte_block)
-    return sha1.hexdigest()
+            hash_obj.update(byte_block)
+    return hash_obj.hexdigest()
 
 
 def download_bitstream(client, bitstream, download_path):
     try:
         client.bitstream_content(bitstream, download_path)
-        return True
     except Exception as e:
         logging.error(f"Error downloading {bitstream.filename}: {e}")
-        return False
 
 
-def check_fixity(downloaded_path, preservica_sha1):
-    if preservica_sha1:
-        downloaded_sha1 = calculate_file_sha1(downloaded_path)
-        if downloaded_sha1 == preservica_sha1:
-            logging.info(f"Fixity values match ({preservica_sha1})")
+def check_fixity(downloaded_path, preservica_hash, algorithm):
+    if preservica_hash:
+        downloaded_hash = calculate_file_hash(downloaded_path, algorithm)
+        if downloaded_hash == preservica_hash:
+            logging.info(
+                f"Fixity values match ({algorithm.upper()}: {preservica_hash})")
             return True
         else:
             logging.error('Fixity values did not match.')
@@ -79,17 +77,14 @@ def main(args):
                 for generation in client.generations(content_object):
                     for bitstream in generation.bitstreams:
                         for algorithm, value in bitstream.fixity.items():
-                            if algorithm == 'SHA1':
-                                preservica_sha1 = value
-                            else:
-                                preservica_sha1 = False
+                            algorithm = algorithm.lower()
 
                         download_path = os.path.join(
                             args.download_folder, bitstream.filename)
 
-                        if download_bitstream(client, bitstream, download_path):
-                            if not check_fixity(download_path, preservica_sha1):
-                                sys.exit()
+                        download_bitstream(client, bitstream, download_path)
+                        if not check_fixity(download_path, value, algorithm):
+                            sys.exit()
 
 
 if __name__ == "__main__":
