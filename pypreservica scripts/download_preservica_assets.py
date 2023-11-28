@@ -110,7 +110,7 @@ def main(args):
                             logging.info(
                                 f"The file '{download_path}' does not exist.")
                             logging.info(
-                                f'Downloading {asset.title} ({asset.reference})')
+                                f'Downloading {bitstream.filename} ({asset.reference})')
                             if download_bitstream(client, bitstream, download_path):
                                 if not check_fixity(download_path, value, algorithm):
                                     sys.exit()
