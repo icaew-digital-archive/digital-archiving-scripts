@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Download Preservica assets from a given parent folder. Checks that fixity values from Preservica and local file match.
+Download Preservica assets from a given parent folder reference or a single asset reference.
 
-Enter "root" as argument to preservica_folder_ref if needing to download from the root level.
+Checks that fixity values from Preservica and the downloaded file match.
 
-usage: download_preservica_assets.py [-h] preservica_folder_ref download_folder
+Enter "root" as argument to --preservica_folder_ref if needing to download from the root level.
+
+usage: download_preservica_assets.py [-h] (--preservica_folder_ref PRESERVICA_FOLDER_REF | --preservica_asset_ref PRESERVICA_ASSET_REF) download_folder
 """
 
 import argparse
@@ -79,13 +81,50 @@ def main(args):
     client = EntityAPI(username=USERNAME, password=PASSWORD,
                        tenant=TENANT, server=SERVER)
 
-    # Deal with special root case
-    if args.preservica_folder_ref == 'root':
-        args.preservica_folder_ref = None
-
     error_count = 0
 
-    for asset in filter(only_assets, client.all_descendants(args.preservica_folder_ref)):
+    if args.preservica_folder_ref:
+
+        # Deal with special root case
+        if args.preservica_folder_ref == 'root':
+            args.preservica_folder_ref = None
+
+        for asset in filter(only_assets, client.all_descendants(args.preservica_folder_ref)):
+
+            for representation in client.representations(asset):
+                for content_object in client.content_objects(representation):
+                    for generation in client.generations(content_object):
+                        for bitstream in generation.bitstreams:
+                            for algorithm, value in bitstream.fixity.items():
+                                # calculate_file_hash() takes an algorithm arg as lowercase
+                                algorithm = algorithm.lower()
+                                value = value.lower()  # Checksums are case insenstive
+
+                            download_path = os.path.join(
+                                args.download_folder, bitstream.filename)
+
+                            if os.path.exists(download_path):
+                                if value == calculate_file_hash(download_path, algorithm):
+                                    logging.info(
+                                        f"{bitstream.filename} already exists locally with matching {algorithm}.")
+                                else:
+                                    logging.info(
+                                        f"{bitstream.filename} already exists locally but the {algorithm} does not match.")
+                                    logging.info(
+                                        f'Re-downloading {bitstream.filename} ({asset.reference})')
+                                    if download_bitstream(client, bitstream, download_path):
+                                        if not check_fixity(download_path, value, algorithm, bitstream.filename):
+                                            error_count += 1
+                            else:
+                                logging.info(
+                                    f'Downloading {bitstream.filename} ({asset.reference})')
+                                if download_bitstream(client, bitstream, download_path):
+                                    if not check_fixity(download_path, value, algorithm, bitstream.filename):
+                                        error_count += 1
+
+    if args.preservica_asset_ref:
+
+        asset = client.asset(args.preservica_asset_ref)
 
         for representation in client.representations(asset):
             for content_object in client.content_objects(representation):
@@ -125,10 +164,15 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Download Preservica assets from a given parent folder")
-    parser.add_argument("preservica_folder_ref",
-                        help="Preservica folder reference. Example: \"bb45f999-7c07-4471-9c30-54b057c500ff\". Enter \"root\" if needing to get metadata from the root folder")
+
     parser.add_argument("download_folder",
                         help="Folder to save the downloaded assets")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--preservica_folder_ref',
+                       help='Preservica folder reference. Example: \"bb45f999-7c07-4471-9c30-54b057c500ff\". Enter \"root\" if needing to get metadata from the root folder')
+    group.add_argument('--preservica_asset_ref',
+                       help='Preservica asset reference. Use only if you need to download a single asset. Example: \"bb45f999-7c07-4471-9c30-54b057c500ff\".')
+
     args = parser.parse_args()
 
     main(args)
