@@ -58,7 +58,7 @@ def download_bitstream(client, bitstream, download_path):
         return False
 
 
-def check_fixity(downloaded_path, preservica_hash, algorithm):
+def check_fixity(downloaded_path, preservica_hash, algorithm, bitstream_filename):
     if preservica_hash:
         downloaded_hash = calculate_file_hash(downloaded_path, algorithm)
         if downloaded_hash == preservica_hash:
@@ -66,7 +66,8 @@ def check_fixity(downloaded_path, preservica_hash, algorithm):
                 f"Fixity values match ({algorithm.upper()}: {preservica_hash})")
             return True
         else:
-            logging.error('Fixity values did not match.')
+            logging.error(
+                f"Fixity values did not match for - {bitstream_filename}.")
             return False
     return True
 
@@ -82,6 +83,8 @@ def main(args):
     if args.preservica_folder_ref == 'root':
         args.preservica_folder_ref = None
 
+    error_count = 0
+
     for asset in filter(only_assets, client.all_descendants(args.preservica_folder_ref)):
 
         for representation in client.representations(asset):
@@ -89,7 +92,9 @@ def main(args):
                 for generation in client.generations(content_object):
                     for bitstream in generation.bitstreams:
                         for algorithm, value in bitstream.fixity.items():
+                            # calculate_file_hash() takes an algorithm arg as lowercase
                             algorithm = algorithm.lower()
+                            value = value.lower()  # Checksums are case insenstive
 
                         download_path = os.path.join(
                             args.download_folder, bitstream.filename)
@@ -104,16 +109,17 @@ def main(args):
                                 logging.info(
                                     f'Re-downloading {bitstream.filename} ({asset.reference})')
                                 if download_bitstream(client, bitstream, download_path):
-                                    if not check_fixity(download_path, value, algorithm):
-                                        sys.exit()
+                                    if not check_fixity(download_path, value, algorithm, bitstream.filename):
+                                        error_count += 1
                         else:
-                            logging.info(
-                                f"The file '{download_path}' does not exist.")
                             logging.info(
                                 f'Downloading {bitstream.filename} ({asset.reference})')
                             if download_bitstream(client, bitstream, download_path):
-                                if not check_fixity(download_path, value, algorithm):
-                                    sys.exit()
+                                if not check_fixity(download_path, value, algorithm, bitstream.filename):
+                                    error_count += 1
+
+    if error_count != 0:
+        print(f"Error count: {error_count}. Please check the log file.")
 
 
 if __name__ == "__main__":
