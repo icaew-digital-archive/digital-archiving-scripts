@@ -41,7 +41,7 @@ def download_files(preservica_ref, directory):
     print(f"Preservica reference: {preservica_ref}")
 
     download_command = [
-        'python3', PYPRESERVICA_DOWNLOAD_SCRIPT, preservica_ref, directory]
+        'python3', PYPRESERVICA_DOWNLOAD_SCRIPT, '--preservica_folder_ref', preservica_ref, directory]
     result = subprocess.run(
         download_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
