@@ -3,6 +3,18 @@
 
 """
 Checks against a list of URLs given to browsertrix with URLs crawled reported by the pages.jsonl log.
+
+usage: pages_json_log_validate.py [-h] url_list pages_jsonl
+
+Check URLs against crawled data
+
+positional arguments:
+  url_list     Path to the URL list file
+  pages_jsonl  Path to the pages.jsonl file
+
+options:
+  -h, --help   show this help message and exit
+
 """
 
 import argparse
