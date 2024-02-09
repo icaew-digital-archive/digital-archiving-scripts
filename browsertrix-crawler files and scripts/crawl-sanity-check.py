@@ -2,61 +2,74 @@
 # -*- coding: utf-8 -*-
 
 """
-Checks against list of URLs given to browsertrix with URLs crawled reported by the pages.jsonl log.
+Checks against a list of URLs given to browsertrix with URLs crawled reported by the pages.jsonl log.
 """
 
 import argparse
 import json
 
 
-def read_file_into_list(file_path):
-    with open(file_path, 'r') as file:
-        return [line.strip() for line in file]
+def read_urls_from_file(file_path):
+    """Reads URLs from a given file and returns them as a set."""
+    try:
+        with open(file_path, 'r') as file:
+            return set(line.strip() for line in file)
+    except IOError as e:
+        print(f"Error reading file {file_path}: {e}")
+        return set()
 
 
-def load_jsonl(file_path):
-    with open(file_path, 'r') as file:
-        next(file)  # Skip first line
-        return [json.loads(line) for line in file]
+def load_jsonl_to_set(file_path, url_key='url', skip_first_line=False):
+    """Loads JSON Lines from a given file, optionally skipping the first line, and extracts URLs into a set."""
+    urls = set()
+    try:
+        with open(file_path, 'r') as file:
+            if skip_first_line:
+                next(file)  # Skip the first line if necessary
+            for line_number, line in enumerate(file, start=1):
+                try:
+                    json_line = json.loads(line)
+                    url = json_line.get(url_key)  # Use .get() to avoid KeyError
+                    if url:
+                        urls.add(url)
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON on line {line_number}: {e}")
+    except IOError as e:
+        print(f"Error reading file {file_path}: {e}")
+    return urls
 
 
-def print_matching_urls(url_list, pages_data):
-    pages_data_url_list = []
-    for entry in pages_data:
-        if entry['url'] in url_list:
-            print(entry['title'], '\n', entry['url'], '\n')
-        pages_data_url_list.append(entry['url'])
-    return pages_data_url_list
 
+def compare_and_print_results(url_list, pages_urls):
+    """Compares two sets of URLs and prints matching and missing URLs."""
+    matching_urls = url_list.intersection(pages_urls)
+    missing_urls = url_list.difference(pages_urls)
 
-def print_missing_urls(url_list, pages_data_url_list):
-    missing_urls = [url for url in url_list if url not in pages_data_url_list]
-    print('URLs not found in pages.jsonl but present in the URL list file:')
-    for url in missing_urls:
-        print(url)
+    if matching_urls:
+        print("Matching URLs:")
+        for url in matching_urls:
+            print(url)
+    else:
+        print("No matching URLs found.")
+
+    if missing_urls:
+        print("\nURLs not found in pages.jsonl but present in the URL list file:")
+        for url in missing_urls:
+            print(url)
+    else:
+        print("\nNo missing URLs.")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Check URLs against crawled data')
+    parser = argparse.ArgumentParser(description='Check URLs against crawled data')
     parser.add_argument('url_list', help='Path to the URL list file')
     parser.add_argument('pages_jsonl', help='Path to the pages.jsonl file')
     args = parser.parse_args()
 
-    url_list_file = args.url_list
-    pages_json_file = args.pages_jsonl
+    url_list = read_urls_from_file(args.url_list)
+    pages_urls = load_jsonl_to_set(args.pages_jsonl)
 
-    # Read URL file into list
-    url_list = read_file_into_list(url_list_file)
-
-    # Read JSON from pages.jsonl file
-    pages_jsonl_data = load_jsonl(pages_json_file)
-
-    # Print matching URLs
-    pages_jsonl_data_url_list = print_matching_urls(url_list, pages_jsonl_data)
-
-    # Print missing URLs if any
-    print_missing_urls(url_list, pages_jsonl_data_url_list)
+    compare_and_print_results(url_list, pages_urls)
 
 
 if __name__ == '__main__':
