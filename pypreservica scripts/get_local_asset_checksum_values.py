@@ -12,20 +12,26 @@ import argparse
 import logging
 
 # Initialize logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Function to calculate checksum of a file
+
+
 def calculate_checksum(file_path, algorithm):
     hash_func = getattr(hashlib, algorithm)()
     with open(file_path, 'rb') as f:
         while True:
-            data = f.read(65536)  # Read the file in chunks to avoid memory issues with large files
+            # Read the file in chunks to avoid memory issues with large files
+            data = f.read(65536)
             if not data:
                 break
             hash_func.update(data)
     return hash_func.hexdigest()
 
 # Function to generate checksums and write to CSV
+
+
 def generate_checksums(directory, output_csv, algorithm):
     with open(output_csv, 'w', newline='') as csvfile:
         csvwriter = csv.writer(csvfile)
@@ -38,12 +44,15 @@ def generate_checksums(directory, output_csv, algorithm):
                 csvwriter.writerow([checksum, file])
                 logging.info(f'Processed file: {file}')
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate checksum values for local files.")
-    parser.add_argument('folder_directory', type=str, help='The directory containing files')
-    parser.add_argument('output_csv', type=str, help='The output CSV file')
+    parser = argparse.ArgumentParser(
+        description="Generate checksum values for local files.")
     parser.add_argument('algorithm', type=str, choices=hashlib.algorithms_available,
                         help='The checksum algorithm to use')
+    parser.add_argument('folder_directory', type=str,
+                        help='The directory containing files')
+    parser.add_argument('output_csv', type=str, help='The output CSV file')
     args = parser.parse_args()
 
     folder_directory = args.folder_directory
@@ -51,6 +60,5 @@ if __name__ == "__main__":
     algorithm = args.algorithm
 
     generate_checksums(folder_directory, output_csv, algorithm)
-    logging.info(f"{algorithm.upper()} checksums and filenames have been written to {output_csv}")
-
-
+    logging.info(
+        f"{algorithm.upper()} checksums and filenames have been written to {output_csv}")
