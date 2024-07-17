@@ -45,7 +45,7 @@ if args.preservica_folder_ref == 'root':
     args.preservica_folder_ref = None
 
 # Define CSV header
-csv_header = ['entity.title', 'entity.entity_type', 'asset.security_tag', 'assetId', 'dc:title', 'dc:creator', 'dc:subject', 'dc:description',
+csv_header = ['entity.title', 'entity.description', 'entity.entity_type', 'asset.security_tag', 'assetId', 'dc:title', 'dc:creator', 'dc:subject', 'dc:description',
               'dc:publisher', 'dc:contributor', 'dc:date', 'dc:type', 'dc:format', 'dc:identifier', 'dc:source',
               'dc:language', 'dc:relation', 'dc:coverage', 'dc:rights']
 
@@ -73,7 +73,7 @@ with open(args.csv_output, 'w', encoding='UTF8', newline='') as csv_file:
             asset = client.asset(entity.reference)
 
         print(f"Writing assetId: {entity.reference} to CSV.")
-        row_data = [entity.title, entity.entity_type,
+        row_data = [entity.title, entity.description, entity.entity_type,
                     asset.security_tag, entity.reference] + item_list
         csv_writer.writerow(row_data)
 
