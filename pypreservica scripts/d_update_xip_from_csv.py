@@ -38,24 +38,29 @@ def update_assets_from_csv(client, csv_file):
             new_title = row['entity.title']
             new_description = row['entity.description']
             new_security_tag = row['asset.security_tag']
+            entity_type = row['entity.entity_type']
+
+            if entity_type == 'EntityType.FOLDER':
+                asset = client.folder(asset_id)
+            if entity_type == 'EntityType.ASSET':
+                asset = client.asset(asset_id)
 
             try:
-                asset = client.asset(asset_id)
                 metadata_updated = False
                 security_tag_updated = False
 
                 # Check and update title
-                if asset.title != new_title:
+                if (asset.title or "") != (new_title or ""):
                     asset.title = new_title
                     metadata_updated = True
 
                 # Check and update description
-                if asset.description != new_description:
+                if (asset.description or "") != (new_description or ""):
                     asset.description = new_description
                     metadata_updated = True
 
                 # Check and update security tag
-                if new_security_tag and asset.security_tag != new_security_tag:
+                if asset.security_tag != new_security_tag:
                     try:
                         client.security_tag_async(asset, new_security_tag)
                         security_tag_updated = True
