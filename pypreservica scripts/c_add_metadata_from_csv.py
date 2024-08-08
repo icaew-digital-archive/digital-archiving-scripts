@@ -6,7 +6,7 @@ Adds metadata to Preservica assets and folders using a CSV file.
 
 The script requires the CSV file to contain an assetId column containing Preservica asset references and columns prefixed with 'dc:' (i.e. 'dc:title').
 
-usage: c_add_metadata_from_csv.py [-h] csv_file
+usage: c_add_metadata_from_csv.py [-h] --csv_file
 """
 
 import argparse
@@ -30,7 +30,8 @@ SERVER = os.getenv('SERVER')
 # Define command-line arguments
 parser = argparse.ArgumentParser(
     description='Add metadata to Preservica assets and folders using a CSV file.')
-parser.add_argument('csv_file', help='Path to the CSV input file')
+parser.add_argument('--csv_file', required=True,
+                    help='Path to the CSV input file')
 
 # Parse command-line arguments
 args = parser.parse_args()

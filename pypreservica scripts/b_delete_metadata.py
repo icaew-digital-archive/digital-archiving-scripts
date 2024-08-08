@@ -4,7 +4,7 @@
 """
 Deletes metadata for child folders/assets given a Preservica folder reference.
 
-usage: b_delete_metadata.py [-h] preservica_folder_ref
+usage: b_delete_metadata.py [-h] --preservica_folder_ref
 """
 
 import argparse
@@ -29,7 +29,7 @@ client = EntityAPI(username=USERNAME,
 # Define command-line arguments
 parser = argparse.ArgumentParser(
     description='Delete metadata from Preservica assets.')
-parser.add_argument('preservica_folder_ref',
+parser.add_argument('--preservica_folder_ref', required=True,
                     help='Preservica folder reference')
 
 # Parse command-line arguments
