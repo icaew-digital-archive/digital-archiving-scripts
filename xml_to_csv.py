@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+This script converts an XML file into a CSV file. It parses the XML data and extracts
+all 'item' elements, converting each item and its associated elements into a row in the CSV.
+The script handles XML elements with missing data by filling those fields with empty strings.
+
+Usage:
+    python script.py <input_xml_file> <output_csv_file>
+
+Arguments:
+    xml_file: The path to the input XML file.
+    csv_file: The desired output CSV filename.
+"""
+
 import xml.etree.ElementTree as ET
 import csv
 import argparse
@@ -20,7 +34,8 @@ def parse_xml_to_csv(xml_file, csv_file):
 
     # Create CSV file
     with open(csv_file, 'w', newline='', encoding='utf-8') as csvfile:
-        csvwriter = csv.writer(csvfile)
+        # Ensure proper quoting
+        csvwriter = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
 
         # Write headers
         csvwriter.writerow(headers)
