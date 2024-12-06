@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Reads the wget log file and uses regex matching to compare to the url list 
+Reads the wget log file and uses regex matching to compare to the URL list
 input to wget to verify the success of a crawl.
 
-Errors are logged to: error_log.txt.
+Errors are logged to: error_log.txt with details of unmet criteria.
 """
 
 import re
@@ -39,7 +39,37 @@ def extract_details(log_entry, patterns):
 
 def read_urls(file_path):
     with open(file_path, 'r') as file:
-        return [line.strip() for line in file]
+        return list(set(line.strip() for line in file))  # De-duplicate URLs
+
+
+def check_url_details(url, details, error_log):
+    errors = []
+
+    if not details:
+        errors.append("URL not found in log.")
+    else:
+        if details["status_code"] != "200":
+            errors.append(f"Status code mismatch (found {details['status_code']}, expected 200).")
+        if details["length"] != details["saved_number"]:
+            errors.append(
+                f"Length mismatch (Length: {details['length']}, Saved: {details['saved_number']})."
+            )
+    
+    if errors:
+        error_log.write(f"{url} errors:\n")
+        for error in errors:
+            error_log.write(f"  - {error}\n")
+        error_log.write("\n")  # Add a line break after each URL entry
+
+        # Print errors to console
+        print(f"{url} failed checks:")
+        for error in errors:
+            print(f"  - {error}")
+        print()
+
+        return False  # Indicates the URL failed some checks
+
+    return True  # Indicates the URL passed all checks
 
 
 def main(log_file_path, url_file_path, error_log_path):
@@ -51,30 +81,19 @@ def main(log_file_path, url_file_path, error_log_path):
 
     urls_to_check = read_urls(url_file_path)
 
-    with open(error_log_path, 'a') as error_log:
+    with open(error_log_path, 'w') as error_log:  # Overwrite old errors
         for url in urls_to_check:
             details = log_details.get(url)
-            if details:
-                if details["status_code"] == "200" and details["length"] == details["saved_number"]:
-                    print(
-                        f"{url} is in logs, status code 200, and length matches saved number.")
-                else:
-                    error_log.write(
-                        f"{url} is in logs, but does not meet all conditions.\n")
-                    print(f"{url} is in logs, but does not meet all conditions.")
-            else:
-                error_log.write(f"{url} is not in logs.\n")
-                print(f"{url} is not in logs.")
+            check_url_details(url, details, error_log)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process log and URL files.")
     parser.add_argument("log_file_path", help="Path to the log file")
-    parser.add_argument(
-        "url_file_path", help="Path to the file containing URLs")
-    parser.add_argument(
-        "--error_log_path", help="Path to the error log file", default="error_log.txt")
+    parser.add_argument("url_file_path", help="Path to the file containing URLs")
+    parser.add_argument("--error_log_path", help="Path to the error log file", default="error_log.txt")
 
     args = parser.parse_args()
 
     main(args.log_file_path, args.url_file_path, args.error_log_path)
+
