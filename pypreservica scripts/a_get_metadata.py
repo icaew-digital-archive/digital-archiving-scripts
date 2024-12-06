@@ -127,9 +127,15 @@ def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header,
                 try:
                     for generation in client.generations(content_object):
                         for bitstream in generation.bitstreams:
-                            for algo, value in bitstream.fixity.items():
-                                if algo == algorithm:
-                                    row_data[1] = value
+                            # Get first item from dict only
+                            algo, value = next(iter(bitstream.fixity.items()))
+                            print(algo, value)
+                            if algo == algorithm:
+                                row_data[1] = value
+                            # for algo, value in next(iter(bitstream.fixity.items())): # Get first item from dict only
+                            #     print(algo, value)
+                            #     if algo == algorithm:
+                            #         row_data[1] = value
                 except Exception as e:
                     logging.error(f"Error processing asset {asset.title}: {e}")
 
