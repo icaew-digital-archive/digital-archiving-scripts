@@ -87,7 +87,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Update Preservica assets from CSV file")
     parser.add_argument(
-        'csv_input', help="Path to the CSV file containing asset updates")
+        '--csv_input', required=True, help="Path to the CSV file containing asset updates")
     args = parser.parse_args()
 
     # Initialize the Preservica API client
