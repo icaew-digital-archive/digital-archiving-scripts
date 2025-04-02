@@ -2,34 +2,32 @@
 
 A collection of scripts to help with various digital archiving tasks.
 
-## archived scripts
+## Main Scripts
 
-Contains various scripts for ad-hoc tasks that may or may not be repeated in the future.
+- `wget_log_reader.py`: Script for reading and analyzing wget log files
+- `wacz_validator.py`: Validates WACZ files for web archiving
+- `xml_to_csv.py`: Converts XML data to CSV format
+- `crt-scraper.py`: Web scraping utility
+- `semaphore-helper.py`: Uses Semaphore's CLSClient to auto-classify documents and sorts by topic score
+- `unzip-nested-zip-files-and-remove-original-zip-files`: Utility for handling nested zip files
 
-## browsertrix-crawler files
+## Directory Structure
 
-Contains scripts relating to browsertrix-crawler
+### file-management/
+Contains scripts for managing and organizing digital files
 
-## downloading items from the Internet Archive
+### pypreservica scripts/
+Contains various scripts that utilize Preservica's API using pyPreservica
 
-Contains a script to reformat the json response from the Internet Archive's CDX API and provides better duplicate removal. Outputs to a .txt file.
+### video platform export scripts/
+Scripts for handling video platform exports
 
-## opex scripts
+### sitemap tools/
+Contains tools for working with sitemaps, including:
+- Script to produce a plain list of URLs from an XML sitemap (outputs to .txt, .html, or terminal)
 
-Contains scripts to partially automate the production of OPEX XML files for use with Preservica.
+### browsertrix-crawler files and scripts/
+Contains scripts and configurations for browsertrix-crawler
 
-## pypreservica scripts
-
-Contains various scripts that utilise Preservica's API using pyPreservica.
-
-## semaphore-helper.py
-
-Uses Semaphore's CLSClient to auto-classify documents and sorts by topic score.
-
-## sitemap tools
-
-Contains a script to produce a plain list of URLs from an XML sitemap (outputs to .txt, .html, or terminal).
-
-## warc_reader.py
-
-A script which reads a folder of WARC files and cross-references the content with a list of URLs. It also uses BS4 to search the HTML content for specific HTML elements.
+### downloading items from internet archive/
+Contains scripts for downloading and processing content from the Internet Archive
