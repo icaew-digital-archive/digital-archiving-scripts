@@ -138,11 +138,9 @@ def load_known_checksums(checksum_file: str, algo: str = "sha1") -> Set[str]:
             f"Checksum file not found: {checksum_file}", LogLevel.ERROR)
         raise FileNotFoundError(f"Checksum file not found: {checksum_file}")
 
-    try_csv = ext == ".csv"
-
     try:
         with open(checksum_file, 'r', encoding='utf-8') as f:
-            if try_csv:
+            if ext == ".csv":
                 try:
                     reader = csv.DictReader(f)
                     # Find the column whose header includes the algorithm name
@@ -157,18 +155,28 @@ def load_known_checksums(checksum_file: str, algo: str = "sha1") -> Set[str]:
 
                     for row in reader:
                         if checksum := row.get(target_column, '').strip():
-                            known_checksums.add(checksum.lower())
+                            # Add debug logging for loaded checksums
+                            clean_checksum = checksum.lower()
+                            known_checksums.add(clean_checksum)
+                            log_message(
+                                f"Loaded checksum: {clean_checksum}", LogLevel.DEBUG)
                 except Exception as e:
                     log_message(
                         f"Falling back to plain text mode: {e}", LogLevel.WARNING)
                     f.seek(0)
                     for line in f:
                         if line := line.strip():
-                            known_checksums.add(line.lower())
+                            clean_checksum = line.lower()
+                            known_checksums.add(clean_checksum)
+                            log_message(
+                                f"Loaded checksum: {clean_checksum}", LogLevel.DEBUG)
             else:
                 for line in f:
                     if line := line.strip():
-                        known_checksums.add(line.lower())
+                        clean_checksum = line.lower()
+                        known_checksums.add(clean_checksum)
+                        log_message(
+                            f"Loaded checksum: {clean_checksum}", LogLevel.DEBUG)
     except Exception as e:
         log_message(f"Error reading checksum file: {e}", LogLevel.ERROR)
         raise
@@ -226,24 +234,42 @@ def compute_checksum(filepath: str, algo: str = 'sha1', chunk_size: int = 1024*1
         raise
 
 
-def process_file(args: Tuple[str, str, Set[str]]) -> Optional[str]:
+def process_file(args: Tuple[str, str, Set[str], bool]) -> Optional[str]:
     """
     Process a single file and return its path if it's a duplicate.
     This function is designed to be used with multiprocessing.
 
     Args:
-        args: Tuple containing (filepath, algorithm, known_checksums)
+        args: Tuple containing (filepath, algorithm, known_checksums, include_empty_files)
 
     Returns:
         Path of the file if it's a duplicate, None otherwise
     """
-    filepath, algo, known_checksums = args
+    filepath, algo, known_checksums, include_empty_files = args
     try:
         if os.path.islink(filepath):
             return None
 
-        checksum = compute_checksum(filepath, algo=algo)
-        return filepath if checksum in known_checksums else None
+        # Skip 0 byte files unless explicitly included
+        if not include_empty_files and os.path.getsize(filepath) == 0:
+            log_message(
+                f"Skipping 0 byte file: {filepath}",
+                LogLevel.DEBUG
+            )
+            return None
+
+        checksum = compute_checksum(
+            filepath, algo=algo).lower()  # Ensure lowercase
+        is_duplicate = checksum in known_checksums
+
+        # Add debug logging
+        if is_duplicate:
+            log_message(
+                f"Found duplicate - File: {filepath}, Checksum: {checksum}",
+                LogLevel.DEBUG
+            )
+
+        return filepath if is_duplicate else None
     except Exception as e:
         log_message(f"Error processing {filepath}: {e}", LogLevel.ERROR)
         return None
@@ -276,7 +302,8 @@ def find_duplicates(
     algo: str = 'sha1',
     output_file: str = "duplicates.txt",
     exclude_folders: Optional[List[str]] = None,
-    num_workers: Optional[int] = None
+    num_workers: Optional[int] = None,
+    include_empty_files: bool = False
 ) -> None:
     """
     Find files that match known checksums in the specified directory.
@@ -288,13 +315,7 @@ def find_duplicates(
         output_file: Path to write duplicate file paths
         exclude_folders: List of folder patterns to exclude
         num_workers: Number of worker processes to use
-
-    The function will:
-    - Recursively scan the directory
-    - Compute checksums for all files
-    - Compare against known checksums
-    - Write duplicate paths to the output file
-    - Log progress and results
+        include_empty_files: Whether to include 0 byte files in duplicate checking
     """
     stats = ProcessingStats(start_time=time.time())
 
@@ -333,12 +354,8 @@ def find_duplicates(
     log_message(
         f"Found {stats.total_files} files to process in {timedelta(seconds=int(scan_time))}")
 
-    # Create temporary file for output
-    tmp_output = tempfile.NamedTemporaryFile(
-        delete=False, mode='w', encoding='utf-8')
-    tmp_path = tmp_output.name
-
-    try:
+    # Open the output file directly instead of using a temporary file
+    with open(output_file, 'w', encoding='utf-8') as output:
         # Determine number of workers
         if num_workers is None:
             num_workers = multiprocessing.cpu_count()
@@ -346,42 +363,44 @@ def find_duplicates(
         log_message(f"Using {num_workers} worker processes")
 
         # Prepare arguments for parallel processing
-        process_args = [(f, algo, known_checksums) for f in all_files]
+        process_args = [(f, algo, known_checksums, include_empty_files)
+                        for f in all_files]
 
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            # Submit all tasks
-            future_to_file = {
-                executor.submit(process_file, args): args[0]
-                for args in process_args
-            }
+        # Create a progress bar for overall file processing
+        with tqdm(total=stats.total_files, desc="Processing files", unit="file") as pbar:
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                # Submit all tasks
+                future_to_file = {
+                    executor.submit(process_file, args): args[0]
+                    for args in process_args
+                }
 
-            # Process results as they complete
-            stats.last_update_time = time.time()
-            update_interval = 60  # Update progress every minute
+                # Process results as they complete
+                stats.last_update_time = time.time()
+                update_interval = 60  # Update progress every minute
 
-            for future in as_completed(future_to_file):
-                result = future.result()
-                if result:
-                    stats.duplicate_files += 1
-                    tmp_output.write(result + "\n")
+                for future in as_completed(future_to_file):
+                    result = future.result()
+                    if result:
+                        stats.duplicate_files += 1
+                        output.write(result + "\n")
+                        output.flush()  # Ensure immediate write to disk
 
-                stats.processed_files += 1
-                current_time = time.time()
+                    stats.processed_files += 1
+                    pbar.update(1)  # Update the progress bar
+                    current_time = time.time()
 
-                # Update progress every minute or when we're done
-                if (current_time - stats.last_update_time >= update_interval or
-                        stats.processed_files == stats.total_files):
-                    update_progress(stats)
-    finally:
-        tmp_output.close()
+                    # Update progress every minute or when we're done
+                    if (current_time - stats.last_update_time >= update_interval or
+                            stats.processed_files == stats.total_files):
+                        update_progress(stats)
 
     total_time = time.time() - stats.start_time
     if stats.duplicate_files == 0:
-        os.remove(tmp_path)
+        os.remove(output_file)  # Remove the file if no duplicates were found
         log_message(
             f"No duplicates found. Total time: {timedelta(seconds=int(total_time))}")
     else:
-        shutil.move(tmp_path, output_file)
         log_message(
             f"Scan complete: {stats.duplicate_files} duplicate(s) found. "
             f"Total time: {timedelta(seconds=int(total_time))}")
@@ -420,6 +439,10 @@ def main() -> None:
         "--workers", type=int, metavar="N",
         help="Number of worker processes to use (default: number of CPU cores)"
     )
+    parser.add_argument(
+        "--include-empty-files", action="store_true",
+        help="Include 0 byte files in duplicate checking (default: False)"
+    )
 
     args = parser.parse_args()
     args.algo = args.algo.lower()
@@ -444,7 +467,8 @@ def main() -> None:
             algo=args.algo,
             output_file=args.output_duplicates,
             exclude_folders=args.exclude,
-            num_workers=args.workers
+            num_workers=args.workers,
+            include_empty_files=args.include_empty_files
         )
 
     except Exception as e:
