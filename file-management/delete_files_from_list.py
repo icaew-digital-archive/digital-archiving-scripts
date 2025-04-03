@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-Safely delete files based on a list of file paths.
+Safely delete files and empty directories based on a list of paths.
 
 This script reads a file containing paths (one per line) and deletes the files
-after confirmation. It includes safety checks and detailed logging.
+and empty directories after confirmation. It includes safety checks and detailed logging.
 
 Features:
 - Safety confirmation before deletion
@@ -13,12 +13,14 @@ Features:
 - Progress reporting
 - Error handling and recovery
 - Dry run mode for testing
+- Handles both files and empty directories
+- Checks for hidden files in directories
 
 Usage:
     python delete_files_from_list.py file_list.txt [options]
 
 Options:
-    --dry-run     Don't actually delete files, just show what would be deleted
+    --dry-run     Don't actually delete items, just show what would be deleted
     --no-confirm  Skip confirmation prompt
     --log-file    Specify log file location
     --verbose     Enable verbose logging
@@ -56,13 +58,13 @@ def setup_logging(log_file: str = "delete_files.log") -> None:
 
 def read_file_list(file_path: str) -> List[str]:
     """
-    Read a list of file paths from a file.
+    Read a list of file and directory paths from a file.
 
     Args:
         file_path: Path to the file containing the list
 
     Returns:
-        List of file paths
+        List of file and directory paths
 
     Raises:
         FileNotFoundError: If the input file doesn't exist
@@ -79,13 +81,36 @@ def read_file_list(file_path: str) -> List[str]:
         raise
 
 
-def delete_files(file_paths: List[str], dry_run: bool = False) -> None:
+def is_directory_empty(directory: str) -> bool:
     """
-    Delete files from the list.
+    Check if a directory is empty, including hidden files.
 
     Args:
-        file_paths: List of file paths to delete
-        dry_run: If True, only show what would be deleted
+        directory: Path to the directory to check
+
+    Returns:
+        True if directory is empty, False otherwise
+    """
+    try:
+        return not any(os.scandir(directory))
+    except Exception as e:
+        logging.error(f"Error checking directory {directory}: {e}")
+        return False
+
+
+def delete_files(file_paths: List[str], dry_run: bool = False) -> None:
+    """
+    Delete files and empty directories from the list.
+
+    Args:
+        file_paths: List of file and directory paths to delete
+        dry_run: If True, only show what would be deleted without making changes
+
+    The function will:
+    - Delete files directly
+    - Delete directories only if they are empty (including hidden files)
+    - Skip non-empty directories with a warning
+    - Log all operations and errors
     """
     success_count = 0
     error_count = 0
@@ -93,22 +118,35 @@ def delete_files(file_paths: List[str], dry_run: bool = False) -> None:
     for file_path in tqdm(file_paths, desc="Deleting files", unit="file"):
         try:
             if not os.path.exists(file_path):
-                logging.warning(f"File not found: {file_path}")
+                logging.warning(f"Path not found: {file_path}")
                 error_count += 1
                 continue
 
-            if not os.path.isfile(file_path):
-                logging.warning(f"Not a file: {file_path}")
-                error_count += 1
-                continue
+            if os.path.isfile(file_path):
+                if dry_run:
+                    logging.info(f"[DRY RUN] Would delete file: {file_path}")
+                    success_count += 1
+                else:
+                    os.remove(file_path)
+                    logging.info(f"Deleted file: {file_path}")
+                    success_count += 1
+            elif os.path.isdir(file_path):
+                if not is_directory_empty(file_path):
+                    logging.warning(f"Directory not empty: {file_path}")
+                    error_count += 1
+                    continue
 
-            if dry_run:
-                logging.info(f"[DRY RUN] Would delete: {file_path}")
-                success_count += 1
+                if dry_run:
+                    logging.info(
+                        f"[DRY RUN] Would delete empty directory: {file_path}")
+                    success_count += 1
+                else:
+                    os.rmdir(file_path)
+                    logging.info(f"Deleted empty directory: {file_path}")
+                    success_count += 1
             else:
-                os.remove(file_path)
-                logging.info(f"Deleted: {file_path}")
-                success_count += 1
+                logging.warning(f"Not a file or directory: {file_path}")
+                error_count += 1
 
         except PermissionError:
             logging.error(f"Permission denied: {file_path}")
@@ -118,21 +156,21 @@ def delete_files(file_paths: List[str], dry_run: bool = False) -> None:
             error_count += 1
 
     logging.info(
-        f"Operation complete: {success_count} files {'would be ' if dry_run else ''}deleted, {error_count} errors")
+        f"Operation complete: {success_count} items {'would be ' if dry_run else ''}deleted, {error_count} errors")
 
 
 def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="Delete files based on a list of file paths."
+        description="Delete files and empty directories based on a list of paths."
     )
     parser.add_argument(
         "file_list",
-        help="Path to file containing list of files to delete (one per line)"
+        help="Path to file containing list of files and directories to delete (one per line)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="Don't actually delete files, just show what would be deleted"
+        help="Don't actually delete items, just show what would be deleted"
     )
     parser.add_argument(
         "--no-confirm", action="store_true",

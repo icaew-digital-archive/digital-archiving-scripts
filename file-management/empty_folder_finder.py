@@ -16,9 +16,10 @@ Features:
 - Dry run mode
 - Exclusion patterns
 - Safety confirmation for deletion
+- Comprehensive error handling
 
 Usage:
-    python empty_folder.py /path/to/directory [options]
+    python empty_folder_finder.py /path/to/directory [options]
 
 Options:
     --delete          Delete empty folders instead of just listing them
@@ -26,6 +27,7 @@ Options:
     --verbose         Show detailed progress information
     --log FILE        Write detailed log to specified file
     --no-confirm      Skip confirmation prompt when deleting
+    --dry-run         Show what would be deleted without making changes
 """
 
 import os
@@ -54,14 +56,14 @@ def setup_logging(log_file: str = None, verbose: bool = False) -> None:
 
 def is_folder_empty(path: str, exclude_patterns: List[str] = None) -> bool:
     """
-    Check if a folder is completely empty, optionally excluding certain patterns.
+    Check if a folder is completely empty, including hidden files and directories.
 
     Args:
         path: Path to the folder to check
-        exclude_patterns: List of patterns to exclude from the check
+        exclude_patterns: List of patterns to exclude from checking
 
     Returns:
-        bool: True if the folder is empty, False otherwise
+        True if the folder is empty, False otherwise
     """
     try:
         with os.scandir(path) as it:
@@ -81,11 +83,11 @@ def is_folder_empty(path: str, exclude_patterns: List[str] = None) -> bool:
 
 def find_completely_empty_folders(root_dir: str, exclude_patterns: List[str] = None) -> List[str]:
     """
-    Recursively find all empty folders in a directory tree.
+    Recursively find all completely empty folders in a directory tree.
 
     Args:
-        root_dir: Root directory to start scanning from
-        exclude_patterns: List of patterns to exclude from the check
+        root_dir: Root directory to start searching from
+        exclude_patterns: List of patterns to exclude from checking
 
     Returns:
         List of paths to empty folders
@@ -112,7 +114,7 @@ def delete_empty_folders(folders: List[str], no_confirm: bool = False) -> None:
 
     Args:
         folders: List of folder paths to delete
-        no_confirm: Skip confirmation prompt if True
+        no_confirm: If True, skip confirmation prompt
     """
     if not folders:
         logging.info("No empty folders to delete.")
@@ -151,16 +153,16 @@ def main():
         epilog="""
 Examples:
     # List empty folders
-    python empty_folder.py /path/to/directory
+    python empty_folder_finder.py /path/to/directory
     
     # Delete empty folders
-    python empty_folder.py /path/to/directory --delete
+    python empty_folder_finder.py /path/to/directory --delete
     
     # Exclude certain patterns
-    python empty_folder.py /path/to/directory --exclude "*.git" --exclude "*.svn"
+    python empty_folder_finder.py /path/to/directory --exclude "*.git" --exclude "*.svn"
     
     # Enable verbose logging
-    python empty_folder.py /path/to/directory --verbose --log empty_folders.log
+    python empty_folder_finder.py /path/to/directory --verbose --log empty_folders.log
     """
     )
 
@@ -174,6 +176,8 @@ Examples:
     parser.add_argument("--log", help="Write detailed log to specified file")
     parser.add_argument("--no-confirm", action="store_true",
                         help="Skip confirmation prompt when deleting")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would be deleted without making changes")
 
     args = parser.parse_args()
 
