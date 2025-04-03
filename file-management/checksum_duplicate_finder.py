@@ -17,16 +17,17 @@ Features:
 - Parallel processing for improved performance
 - Configurable number of worker processes
 - Comprehensive error handling and reporting
+- Support for large files with chunked processing
 
 Usage:
-    python checksum_duplicate_checker.py checksum_report path [options]
+    python checksum_duplicate_finder.py checksum_report path [options]
 
 Options:
     --algo ALGORITHM    Checksum algorithm to use (default: sha1)
     --output-duplicates FILE    Write duplicate paths to this file
     --exclude FOLDER    Folders to exclude from scanning (can be used multiple times)
     --workers N         Number of worker processes to use (default: number of CPU cores)
-    --log-file FILE     Path to log file (default: checksum_duplicate_checker.log)
+    --log-file FILE     Path to log file (default: checksum_duplicate_finder.log)
     --verbose           Enable verbose logging
 """
 
@@ -115,18 +116,18 @@ def log_message(message: str, level: LogLevel = LogLevel.INFO) -> None:
 
 def load_known_checksums(checksum_file: str, algo: str = "sha1") -> Set[str]:
     """
-    Load known checksums from a file (CSV or plain text).
+    Load known checksums from a file.
 
     Args:
-        checksum_file: Path to the checksum file
-        algo: Checksum algorithm to look for in CSV headers
+        checksum_file: Path to the file containing checksums
+        algo: Checksum algorithm used in the file
 
     Returns:
         Set of known checksums
 
     Raises:
-        FileNotFoundError: If checksum_file doesn't exist
-        ValueError: If the file format is invalid or no matching algorithm column found
+        ValueError: If the checksum file format is invalid
+        FileNotFoundError: If the checksum file doesn't exist
     """
     known_checksums: Set[str] = set()
     _, ext = os.path.splitext(checksum_file.lower())
@@ -184,20 +185,18 @@ def load_known_checksums(checksum_file: str, algo: str = "sha1") -> Set[str]:
 def compute_checksum(filepath: str, algo: str = 'sha1', chunk_size: int = 1024*1024) -> str:
     """
     Compute the checksum of a file using the specified algorithm.
-    Uses a larger chunk size (1MB) for better performance on external drives.
 
     Args:
         filepath: Path to the file
-        algo: Checksum algorithm to use (default: sha1)
-        chunk_size: Size of chunks to read (default: 1MB)
+        algo: Checksum algorithm to use
+        chunk_size: Size of chunks to process (default: 1MB)
 
     Returns:
-        Hex digest of the file's checksum
+        Hexadecimal string representation of the checksum
 
     Raises:
-        FileNotFoundError: If filepath doesn't exist
-        PermissionError: If file cannot be read
-        ValueError: If algorithm is not supported
+        FileNotFoundError: If the file doesn't exist
+        PermissionError: If the file cannot be read
     """
     if not os.path.exists(filepath):
         log_message(f"File not found: {filepath}", LogLevel.ERROR)
@@ -214,9 +213,12 @@ def compute_checksum(filepath: str, algo: str = 'sha1', chunk_size: int = 1024*1
         raise ValueError(f"Unsupported algorithm: {algo}") from e
 
     try:
+        file_size = os.path.getsize(filepath)
         with open(filepath, 'rb') as f:
-            while chunk := f.read(chunk_size):
-                h.update(chunk)
+            with tqdm(total=file_size, unit='B', unit_scale=True, desc=f"Hashing {os.path.basename(filepath)}", leave=False) as pbar:
+                while chunk := f.read(chunk_size):
+                    h.update(chunk)
+                    pbar.update(len(chunk))
         return h.hexdigest()
     except Exception as e:
         log_message(
@@ -277,16 +279,22 @@ def find_duplicates(
     num_workers: Optional[int] = None
 ) -> None:
     """
-    Find duplicate files based on checksums.
-    Uses multiprocessing for better performance.
+    Find files that match known checksums in the specified directory.
 
     Args:
-        scan_path: Path to scan for duplicates
-        known_checksums: Set of known checksums to compare against
+        scan_path: Directory to scan for duplicates
+        known_checksums: Set of known checksums to match against
         algo: Checksum algorithm to use
         output_file: Path to write duplicate file paths
-        exclude_folders: List of folders to exclude from scanning
-        num_workers: Number of worker processes to use (default: number of CPU cores)
+        exclude_folders: List of folder patterns to exclude
+        num_workers: Number of worker processes to use
+
+    The function will:
+    - Recursively scan the directory
+    - Compute checksums for all files
+    - Compare against known checksums
+    - Write duplicate paths to the output file
+    - Log progress and results
     """
     stats = ProcessingStats(start_time=time.time())
 
