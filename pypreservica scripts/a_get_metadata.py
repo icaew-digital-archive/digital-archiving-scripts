@@ -23,9 +23,19 @@ import logging
 from dotenv import load_dotenv
 from pyPreservica import EntityAPI, only_assets
 
-# Initialize logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logging to file and console
+log_file = "errors.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, mode='w'),
+        logging.StreamHandler()
+    ]
+)
+
+# Global error counter
+error_count = 0
 
 
 def load_env_variables():
@@ -51,7 +61,9 @@ def initialize_client(username, password, tenant, server):
                            tenant=tenant, server=server)
         return client
     except Exception as e:
+        global error_count
         logging.error(f"Failed to initialize Preservica API client: {e}")
+        error_count += 1
         exit(1)
 
 
@@ -62,8 +74,8 @@ def parse_arguments():
                         help='Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder')
     parser.add_argument('--metadata_csv', required=True,
                         help='Output CSV filename for metadata and checksums')
-    parser.add_argument('--algorithm', default='SHA1', choices=[
-                        'MD5', 'SHA1', 'SHA256'], help='The checksum algorithm to use (choices: MD5, SHA1, SHA256)')
+    parser.add_argument('--algorithm', default='SHA1', choices=['MD5', 'SHA1', 'SHA256'],
+                        help='The checksum algorithm to use (choices: MD5, SHA1, SHA256)')
     parser.add_argument('--new_template', action='store_true',
                         help='Flag to use new template with extended Dublin Core elements')
     args = parser.parse_args()
@@ -93,6 +105,8 @@ def get_all_descendants_with_logging(client, folder_ref):
 
 
 def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header, algorithm, new_template):
+    global error_count
+
     for entity in descendants:
         if str(entity.entity_type) == 'EntityType.FOLDER':
             asset = client.folder(entity.reference)
@@ -104,8 +118,15 @@ def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header,
         logging.info(
             f"Getting metadata and checksum for assetID: {asset.reference}")
 
-        xml_string = client.metadata_for_entity(
-            entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+        try:
+            xml_string = client.metadata_for_entity(
+                entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+        except Exception as e:
+            logging.error(
+                f"Skipping metadata for entity {entity.reference}: {e}")
+            error_count += 1
+            continue
+
         dc_values = defaultdict(list)
 
         if xml_string is not None:
@@ -116,40 +137,53 @@ def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header,
                 if child.text:
                     dc_values[dc_field].append(child.text)
 
-        row_data = [
+        # Create base row data with all metadata
+        base_row_data = [
             asset.reference, '', asset.entity_type,
             asset.security_tag, asset.title, asset.description
         ]
 
-        # Retrieve checksum value
+        # Add DC values if not using new template
+        if not new_template:
+            for header in csv_header[6:]:
+                if dc_values[header]:
+                    base_row_data.append(dc_values[header].pop(0))
+                else:
+                    base_row_data.append('')
+
+        # Collect all checksum values
+        checksum_values = []
         for representation in client.representations(asset):
             for content_object in client.content_objects(representation):
                 try:
                     for generation in client.generations(content_object):
                         for bitstream in generation.bitstreams:
-                            # Get first item from dict only
-                            algo, value = next(iter(bitstream.fixity.items()))
-                            print(algo, value)
-                            if algo == algorithm:
-                                row_data[1] = value
-                            # for algo, value in next(iter(bitstream.fixity.items())): # Get first item from dict only
-                            #     print(algo, value)
-                            #     if algo == algorithm:
-                            #         row_data[1] = value
+                            if algorithm in bitstream.fixity:
+                                checksum_values.append(
+                                    bitstream.fixity[algorithm])
                 except Exception as e:
                     logging.error(f"Error processing asset {asset.title}: {e}")
+                    error_count += 1
 
-        if not new_template:
-            for header in csv_header[6:]:
-                if dc_values[header]:
-                    row_data.append(dc_values[header].pop(0))
-                else:
-                    row_data.append('')
+        # Write rows for checksums
+        if checksum_values:
+            # Write first row with all metadata
+            base_row_data[1] = checksum_values[0]
+            csv_writer.writerow(base_row_data)
 
-        csv_writer.writerow(row_data)
+            # Write additional rows with only checksum
+            for checksum in checksum_values[1:]:
+                blank_row = [''] * len(base_row_data)  # Create empty row
+                blank_row[1] = checksum  # Set only the checksum
+                csv_writer.writerow(blank_row)
+        else:
+            # If no checksums found, write the row with empty checksum field
+            csv_writer.writerow(base_row_data)
 
 
 def main():
+    global error_count
+
     username, password, tenant, server = load_env_variables()
     client = initialize_client(username, password, tenant, server)
     args = parse_arguments()
@@ -163,16 +197,21 @@ def main():
         descendants = get_all_descendants_with_logging(
             client, args.preservica_folder_ref)
         for entity in descendants:
-            xml_string = client.metadata_for_entity(
-                entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-            max_counts = extract_dc_elements_and_update_header(
-                xml_string, max_counts)
+            try:
+                xml_string = client.metadata_for_entity(
+                    entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+                max_counts = extract_dc_elements_and_update_header(
+                    xml_string, max_counts)
+            except Exception as e:
+                logging.error(
+                    f"Skipping entity {entity.reference} due to metadata error: {e}")
+                error_count += 1
     except Exception as e:
         logging.error(f"Error retrieving descendants: {e}")
+        error_count += 1
         exit(1)
 
     extended_headers = []
-
     for field, count in max_counts.items():
         extended_headers.extend([field] * count)
 
@@ -194,6 +233,12 @@ def main():
 
     logging.info(
         f"Metadata and checksums have been written to {args.metadata_csv}")
+
+    # Final error summary
+    if error_count > 0:
+        print(f"\n{error_count} errors occurred. Check '{log_file}' for details.")
+    else:
+        print("\nScript completed with no errors.")
 
 
 if __name__ == '__main__':
