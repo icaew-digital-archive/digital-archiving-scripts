@@ -15,6 +15,8 @@ Features:
 - Safety confirmation for deletion
 - Folder exclusion patterns
 - Output file for duplicate paths
+- Parallel processing for improved performance
+- Configurable number of worker processes
 
 Usage:
     python checksum_duplicate_checker.py checksum_report path [options]
@@ -24,6 +26,9 @@ Options:
     --delete            Delete matching files after confirmation
     --output-duplicates FILE    Write duplicate paths to this file
     --exclude FOLDER    Folders to exclude from scanning (can be used multiple times)
+    --workers N         Number of worker processes to use (default: number of CPU cores)
+    --log-file FILE     Path to log file (default: checksum_duplicate_checker.log)
+    --verbose           Enable verbose logging
 """
 
 import os
@@ -35,8 +40,12 @@ import shutil
 from tqdm import tqdm
 import logging
 from pathlib import Path
-from typing import Set, List, Optional
+from typing import Set, List, Optional, Tuple
 import sys
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import time
+from datetime import timedelta
 
 # Configure logging
 
@@ -110,35 +119,42 @@ def load_known_checksums(checksum_file: str, algo: str = "sha1") -> Set[str]:
 
                     for row in reader:
                         checksum = row.get(target_column)
-                        if checksum:
+                        if checksum and checksum.strip():  # Check for non-empty checksum
                             known_checksums.add(checksum.strip().lower())
                 except Exception as e:
                     logging.warning(f"Falling back to plain text mode: {e}")
                     f.seek(0)
                     for line in f:
-                        if algo in line.lower():
-                            known_checksums.add(line.strip().lower())
+                        line = line.strip()
+                        if line and algo in line.lower():  # Skip empty lines
+                            known_checksums.add(line.lower())
             else:
                 for line in f:
-                    known_checksums.add(line.strip().lower())
+                    line = line.strip()
+                    if line:  # Skip empty lines
+                        known_checksums.add(line.lower())
     except Exception as e:
         logging.error(f"Error reading checksum file: {e}")
         error_count += 1
         raise
 
-    logging.info(
-        f"Loaded {len(known_checksums)} known checksums from {checksum_file}")
+    if not known_checksums:
+        logging.warning(f"No valid checksums found in {checksum_file}")
+    else:
+        logging.info(
+            f"Loaded {len(known_checksums)} known checksums from {checksum_file}")
     return known_checksums
 
 
-def compute_checksum(filepath: str, algo: str = 'sha1', chunk_size: int = 8192) -> str:
+def compute_checksum(filepath: str, algo: str = 'sha1', chunk_size: int = 1024*1024) -> str:
     """
     Compute the checksum of a file using the specified algorithm.
+    Uses a larger chunk size (1MB) for better performance on external drives.
 
     Args:
         filepath: Path to the file
         algo: Checksum algorithm to use (default: sha1)
-        chunk_size: Size of chunks to read (default: 8192)
+        chunk_size: Size of chunks to read (default: 1MB)
 
     Returns:
         Hex digest of the file's checksum
@@ -175,16 +191,44 @@ def compute_checksum(filepath: str, algo: str = 'sha1', chunk_size: int = 8192) 
         raise
 
 
+def process_file(args: Tuple[str, str, Set[str], bool]) -> Optional[Tuple[str, bool]]:
+    """
+    Process a single file and return its path if it's a duplicate.
+    This function is designed to be used with multiprocessing.
+    """
+    filepath, algo, known_checksums, delete = args
+    try:
+        if os.path.islink(filepath):
+            return None
+
+        checksum = compute_checksum(filepath, algo=algo)
+        if checksum in known_checksums:
+            if delete:
+                try:
+                    os.remove(filepath)
+                    return (filepath, True)
+                except Exception as e:
+                    logging.error(f"Failed to delete {filepath}: {e}")
+                    return (filepath, False)
+            return (filepath, False)
+        return None
+    except Exception as e:
+        logging.error(f"Error processing {filepath}: {e}")
+        return None
+
+
 def find_duplicates(
     scan_path: str,
     known_checksums: Set[str],
     algo: str = 'sha1',
     delete: bool = False,
     output_file: str = "duplicates.txt",
-    exclude_folders: Optional[List[str]] = None
+    exclude_folders: Optional[List[str]] = None,
+    num_workers: Optional[int] = None
 ) -> None:
     """
     Find and optionally delete duplicate files based on checksums.
+    Uses multiprocessing for better performance.
 
     Args:
         scan_path: Path to scan for duplicates
@@ -193,12 +237,10 @@ def find_duplicates(
         delete: Whether to delete duplicate files
         output_file: Path to write duplicate file paths
         exclude_folders: List of folders to exclude from scanning
-
-    Raises:
-        FileNotFoundError: If scan_path doesn't exist
-        PermissionError: If scan_path cannot be accessed
+        num_workers: Number of worker processes to use (default: number of CPU cores)
     """
     global error_count
+    start_time = time.time()
 
     if not os.path.exists(scan_path):
         logging.error(f"Scan path not found: {scan_path}")
@@ -218,7 +260,9 @@ def find_duplicates(
     # Collect all files to process
     all_files = []
     logging.info(f"Scanning directory: {scan_path}")
-    for root, _, files in os.walk(scan_path):
+
+    # Use tqdm for directory scanning progress
+    for root, _, files in tqdm(os.walk(scan_path), desc="Scanning directories"):
         # Skip excluded folders
         if any(root.startswith(exclude) for exclude in exclude_folders):
             logging.debug(f"Skipping excluded folder: {root}")
@@ -228,7 +272,9 @@ def find_duplicates(
             filepath = os.path.join(root, name)
             all_files.append(filepath)
 
-    logging.info(f"Found {len(all_files)} files to process")
+    scan_time = time.time() - start_time
+    logging.info(
+        f"Found {len(all_files)} files to process in {timedelta(seconds=int(scan_time))}")
     duplicate_count = 0
     deleted_count = 0
 
@@ -238,38 +284,67 @@ def find_duplicates(
     tmp_path = tmp_output.name
 
     try:
-        for filepath in tqdm(all_files, desc="Scanning files", unit="file"):
-            try:
-                if os.path.islink(filepath):
-                    logging.debug(f"Skipping symlink: {filepath}")
-                    continue
+        # Determine number of workers
+        if num_workers is None:
+            num_workers = multiprocessing.cpu_count()
 
-                checksum = compute_checksum(filepath, algo=algo)
-                if checksum in known_checksums:
+        logging.info(f"Using {num_workers} worker processes")
+
+        # Prepare arguments for parallel processing
+        process_args = [(f, algo, known_checksums, delete) for f in all_files]
+
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all tasks
+            future_to_file = {
+                executor.submit(process_file, args): args[0]
+                for args in process_args
+            }
+
+            # Process results as they complete
+            processed = 0
+            last_update = time.time()
+            update_interval = 60  # Update progress every minute
+
+            for future in as_completed(future_to_file):
+                result = future.result()
+                if result:
+                    filepath, was_deleted = result
                     duplicate_count += 1
-                    logging.info(f"Found duplicate: {filepath}")
-                    tmp_output.write(filepath + "\n")
-                    if delete:
-                        try:
-                            os.remove(filepath)
-                            deleted_count += 1
-                            logging.info(f"Deleted: {filepath}")
-                        except Exception as e:
-                            logging.error(f"Failed to delete {filepath}: {e}")
-                            error_count += 1
-            except Exception as e:
-                logging.error(f"Error processing {filepath}: {e}")
-                error_count += 1
+                    if not was_deleted:
+                        tmp_output.write(filepath + "\n")
+                    else:
+                        deleted_count += 1
+                        logging.info(f"Deleted: {filepath}")
+
+                processed += 1
+                current_time = time.time()
+
+                # Update progress every minute or when we're done
+                if current_time - last_update >= update_interval or processed == len(all_files):
+                    elapsed = current_time - start_time
+                    rate = processed / elapsed if elapsed > 0 else 0
+                    remaining = (len(all_files) - processed) / \
+                        rate if rate > 0 else 0
+
+                    logging.info(
+                        f"Progress: {processed}/{len(all_files)} files processed "
+                        f"({rate:.1f} files/sec, {duplicate_count} duplicates found, "
+                        f"ETA: {timedelta(seconds=int(remaining))})"
+                    )
+                    last_update = current_time
     finally:
         tmp_output.close()
 
+    total_time = time.time() - start_time
     if duplicate_count == 0:
         os.remove(tmp_path)
-        logging.info("No duplicates found.")
+        logging.info(
+            f"No duplicates found. Total time: {timedelta(seconds=int(total_time))}")
     else:
         shutil.move(tmp_path, output_file)
         logging.info(
-            f"Scan complete: {duplicate_count} duplicate(s) found, {deleted_count} deleted.")
+            f"Scan complete: {duplicate_count} duplicate(s) found, {deleted_count} deleted. "
+            f"Total time: {timedelta(seconds=int(total_time))}")
         logging.info(f"Duplicate file paths written to: {output_file}")
 
 
@@ -305,6 +380,10 @@ def main() -> None:
         "--verbose", action="store_true",
         help="Enable verbose logging"
     )
+    parser.add_argument(
+        "--workers", type=int, metavar="N",
+        help="Number of worker processes to use (default: number of CPU cores)"
+    )
 
     args = parser.parse_args()
     args.algo = args.algo.lower()
@@ -338,7 +417,8 @@ def main() -> None:
             algo=args.algo,
             delete=args.delete,
             output_file=args.output_duplicates,
-            exclude_folders=args.exclude
+            exclude_folders=args.exclude,
+            num_workers=args.workers
         )
 
     except Exception as e:
