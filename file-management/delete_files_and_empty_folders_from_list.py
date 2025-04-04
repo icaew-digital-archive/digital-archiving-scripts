@@ -25,6 +25,7 @@ Options:
     --no-confirm  Skip confirmation prompt
     --log-file    Specify log file location
     --verbose     Enable verbose logging
+    --safe-root   Add an additional safe root directory (can be used multiple times)
 """
 
 import os
@@ -35,8 +36,11 @@ from pathlib import Path
 from typing import List
 from tqdm import tqdm
 
-# Restrict operations to a safe root directory
-SAFE_ROOT = os.path.abspath("/home/digital-archivist")
+# Restrict operations to safe root directories
+SAFE_ROOTS = [
+    os.path.abspath("/home/digital-archivist"),
+    os.path.abspath("/media/digital-archivist/")
+]
 
 
 def setup_logging(log_file: str = "delete_files.log") -> None:
@@ -80,14 +84,16 @@ def is_directory_empty(directory: str) -> bool:
 
 
 def is_path_within_safe_root(path: str) -> bool:
-    return os.path.abspath(path).startswith(SAFE_ROOT)
+    """Check if the given path is within any of the safe root directories."""
+    abs_path = os.path.abspath(path)
+    return any(abs_path.startswith(root) for root in SAFE_ROOTS)
 
 
 def delete_files(file_paths: List[str], dry_run: bool = False) -> None:
     success_count = 0
     error_count = 0
 
-    for file_path in tqdm(file_paths, desc="Deleting files", unit="file"):
+    for file_path in tqdm(file_paths, desc="Processing items", unit="item"):
         try:
             if not is_path_within_safe_root(file_path):
                 logging.warning(f"Path outside safe root: {file_path}")
@@ -155,6 +161,8 @@ def main() -> None:
                         help="Path to log file (default: delete_files.log)")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose logging")
+    parser.add_argument("--safe-root", action="append", dest="safe_roots",
+                        help="Add an additional safe root directory (can be used multiple times)")
 
     args = parser.parse_args()
 
@@ -162,24 +170,30 @@ def main() -> None:
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    # Update SAFE_ROOTS with any additional roots from command line
+    global SAFE_ROOTS
+    if args.safe_roots:
+        SAFE_ROOTS.extend(os.path.abspath(root) for root in args.safe_roots)
+        logging.info(f"Safe root directories: {SAFE_ROOTS}")
+
     try:
-        logging.info(f"Reading file list from: {args.file_list}")
+        logging.info(f"Reading list from: {args.file_list}")
         file_paths = read_file_list(args.file_list)
-        logging.info(f"Found {len(file_paths)} files to process")
+        logging.info(f"Found {len(file_paths)} items to process")
 
         if not file_paths:
-            logging.warning("No files found in the list")
+            logging.warning("No items found in the list")
             return
 
         logging.info(
-            f"Found {len(file_paths)} files to {'delete' if not args.dry_run else 'process'}")
+            f"Found {len(file_paths)} items to {'delete' if not args.dry_run else 'process'}")
         if args.verbose:
             for path in file_paths:
-                logging.debug(f"File: {path}")
+                logging.debug(f"Item: {path}")
 
         if not args.no_confirm and not args.dry_run:
             confirm = input(
-                f"Are you sure you want to delete {len(file_paths)} files? Type YES to confirm: ")
+                f"Are you sure you want to delete {len(file_paths)} items (files and empty directories)? Type YES to confirm: ")
             if confirm != "YES":
                 logging.info("Operation cancelled by user")
                 return
