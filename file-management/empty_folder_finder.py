@@ -2,32 +2,26 @@
 # -*- coding: utf-8 -*-
 
 """
-A tool for finding and optionally deleting completely empty folders.
+A tool for finding completely empty folders.
 
 This script recursively scans a directory tree to identify folders that contain no files
-or subdirectories (including hidden ones). It can either list these folders or delete them.
+or subdirectories (including hidden ones).
 
 Features:
 - Recursive scanning of directory trees
-- Option to delete empty folders
 - Support for hidden files/folders
 - Progress reporting
 - Detailed logging
-- Dry run mode
 - Exclusion patterns
-- Safety confirmation for deletion
 - Comprehensive error handling
 
 Usage:
     python empty_folder_finder.py /path/to/directory [options]
 
 Options:
-    --delete          Delete empty folders instead of just listing them
     --exclude PATTERN Exclude folders matching the pattern (can be used multiple times)
     --verbose         Show detailed progress information
     --log FILE        Write detailed log to specified file
-    --no-confirm      Skip confirmation prompt when deleting
-    --dry-run         Show what would be deleted without making changes
 """
 
 import os
@@ -108,55 +102,14 @@ def find_completely_empty_folders(root_dir: str, exclude_patterns: List[str] = N
     return empty_folders
 
 
-def delete_empty_folders(folders: List[str], no_confirm: bool = False) -> None:
-    """
-    Delete a list of empty folders with optional confirmation.
-
-    Args:
-        folders: List of folder paths to delete
-        no_confirm: If True, skip confirmation prompt
-    """
-    if not folders:
-        logging.info("No empty folders to delete.")
-        return
-
-    if not no_confirm:
-        print(f"\nFound {len(folders)} empty folders to delete:")
-        for folder in folders:
-            print(f"  {folder}")
-        confirm = input(
-            "\nAre you sure you want to delete these folders? (y/N): ").strip().lower()
-        if confirm != 'y':
-            print("Operation cancelled.")
-            return
-
-    deleted_count = 0
-    failed_count = 0
-
-    for folder in folders:
-        try:
-            os.rmdir(folder)
-            logging.info(f"Deleted: {folder}")
-            deleted_count += 1
-        except Exception as e:
-            logging.error(f"Failed to delete {folder}: {str(e)}")
-            failed_count += 1
-
-    logging.info(
-        f"Deleted {deleted_count} folders. Failed to delete {failed_count} folders.")
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Find and optionally delete completely empty folders.",
+        description="Find completely empty folders.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
     # List empty folders
     python empty_folder_finder.py /path/to/directory
-    
-    # Delete empty folders
-    python empty_folder_finder.py /path/to/directory --delete
     
     # Exclude certain patterns
     python empty_folder_finder.py /path/to/directory --exclude "*.git" --exclude "*.svn"
@@ -167,17 +120,11 @@ Examples:
     )
 
     parser.add_argument("directory", help="Root directory to scan")
-    parser.add_argument("--delete", action="store_true",
-                        help="Delete empty folders instead of just listing them")
     parser.add_argument("--exclude", action="append",
                         help="Exclude folders matching this pattern (can be used multiple times)")
     parser.add_argument("--verbose", action="store_true",
                         help="Show detailed progress information")
     parser.add_argument("--log", help="Write detailed log to specified file")
-    parser.add_argument("--no-confirm", action="store_true",
-                        help="Skip confirmation prompt when deleting")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Show what would be deleted without making changes")
 
     args = parser.parse_args()
 
@@ -197,13 +144,17 @@ Examples:
         logging.info("No completely empty folders found.")
         return
 
-    if args.delete:
-        delete_empty_folders(empty_dirs, args.no_confirm)
-    else:
-        print("\nDry run: Empty folders found (not deleted):")
-        for folder in empty_dirs:
-            print(folder)
-        print(f"\nTotal empty folders found: {len(empty_dirs)}")
+    # Write to output file
+    output_file = "emptyfolders.txt"
+    try:
+        with open(output_file, 'w') as f:
+            for folder in empty_dirs:
+                f.write(f"{folder}\n")
+        print(f"\nFound {len(empty_dirs)} empty folders.")
+        print(f"Results have been saved to: {os.path.abspath(output_file)}")
+    except Exception as e:
+        logging.error(f"Failed to write to output file: {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
