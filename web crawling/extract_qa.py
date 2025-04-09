@@ -16,15 +16,17 @@ The script extracts various metrics for each archived page, including:
 - Source file information
 
 Usage:
-    python extract_qa.py input.wacz [output.csv]
+    python extract_qa.py input.wacz [output.csv] [--filter-hash-urls]
 
 Arguments:
     input.wacz    Path to the input WACZ file
     output.csv    Optional path for the output CSV file (defaults to input filename with .csv extension)
+    --filter-hash-urls  Optional flag to filter out URLs containing hash fragments (#)
 
 Example:
     python extract_qa.py archive.wacz
     python extract_qa.py archive.wacz results.csv
+    python extract_qa.py archive.wacz results.csv --filter-hash-urls
 
 Exit Codes:
     0 - Success
@@ -47,7 +49,7 @@ def log(message: str, icon: str = ""):
     print(f"{icon + ' ' if icon else ''}{message}")
 
 
-def extract_qa(input_file: str, output_file: str = None):
+def extract_qa(input_file: str, output_file: str = None, filter_hash_urls: bool = False):
     """Extract QA JSON records from info WARC files inside a WACZ archive."""
     if not os.path.exists(input_file):
         log(f"File not found: {input_file}", "❌")
@@ -99,11 +101,15 @@ def extract_qa(input_file: str, output_file: str = None):
                                 payload = record.content_stream().read()
                                 json_data = json.loads(payload.decode("utf-8"))
 
+                                url = json_data.get("url")
+                                if filter_hash_urls and url and "#" in url:
+                                    continue
+
                                 comparison = json_data.get("comparison", {})
                                 rc = comparison.get("resourceCounts", {})
 
                                 data.append({
-                                    "url": json_data.get("url"),
+                                    "url": url,
                                     "screenshot_match": comparison.get("screenshotMatch"),
                                     "text_match": comparison.get("textMatch"),
                                     "crawl_good": rc.get("crawlGood"),
@@ -124,7 +130,9 @@ def extract_qa(input_file: str, output_file: str = None):
         if not data:
             log("No QA data found in WACZ.", "⚠️")
         else:
-            df = pd.DataFrame(data).sort_values("url")
+            df = pd.DataFrame(data)
+            # Sort by screenshot_match and text_match in ascending order
+            df = df.sort_values(by=['screenshot_match', 'text_match'])
             df.to_csv(output_file, index=False)
             log(f"Extracted {len(df)} QA records.", "✅")
             log(f"Saved to {output_file}", "📁")
@@ -139,6 +147,7 @@ def main():
 Examples:
     python extract_qa.py archive.wacz
     python extract_qa.py archive.wacz results.csv
+    python extract_qa.py archive.wacz results.csv --filter-hash-urls
         """
     )
 
@@ -151,9 +160,14 @@ Examples:
         nargs="?",
         help="Optional path to output CSV file"
     )
+    parser.add_argument(
+        "--filter-hash-urls",
+        action="store_true",
+        help="Filter out URLs containing hash fragments (#)"
+    )
 
     args = parser.parse_args()
-    return extract_qa(args.input, args.output)
+    return extract_qa(args.input, args.output, args.filter_hash_urls)
 
 
 if __name__ == "__main__":
