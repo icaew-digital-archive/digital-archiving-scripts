@@ -1,6 +1,0 @@
-#!/bin/bash
-
-while [[ -n $(find . -name '*.zip') ]]
-do
-find . -name '*.zip'|awk -F'.zip' '{print "unzip -d \""$1"\" \""$0"\" && rm \""$0"\""}'|sh
-done
