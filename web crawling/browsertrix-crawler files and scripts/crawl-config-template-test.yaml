@@ -1,0 +1,24 @@
+# For an example of go to Crawling Configuration Options at https://github.com/webrecorder/browsertrix-crawler
+# A "template test" crawl; i.e. used for crawling all the types of templates found on ICAEW.com.
+# The crawl will only crawl pages defined in seedFile.txt and no others.
+
+# Basic setup
+profile: /crawls/profiles/profile.tar.gz
+seedFile: /app/seedFile.txt
+collection: template-test
+screencastPort: 9037
+customBehaviors: /custom-behaviors/
+
+# Additional options
+allowHashUrls: true
+combineWARC: true
+generateWACZ: true
+workers: 8
+text:
+  - to-warc
+  - to-pages
+screenshot: view
+diskUtilization: 0
+
+# Crawl specific options
+scopeType: "page-spa"
