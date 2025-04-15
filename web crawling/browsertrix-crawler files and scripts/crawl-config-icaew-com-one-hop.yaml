@@ -1,6 +1,6 @@
 # For an example of go to Crawling Configuration Options at https://github.com/webrecorder/browsertrix-crawler
 # Example config for a full ICAEW.com crawl. Whether it is a logged-in session is defined within the crawl profile.
-# This crawl will read the seedFile.txt and also discover pages within the defined scope.
+# This crawl will read the seedFile.txt and only crawl 1 hop from the seed URLs.
 
 # Basic setup
 profile: /crawls/profiles/profile.tar.gz
@@ -22,6 +22,7 @@ screenshot: view
 diskUtilization: 0
 
 # Crawl specific options
+depth: 1  # Limit crawl to 1 hop from seed URLs
 scopeType: "custom"
 include:
   - ^(http(s)?:\/\/)?(www\.)?(careers\.|cdn\.|regulation\.)?icaew\.com.*$ # scope in icaew.com, careers.icaew.com, cd.icaew.com, and regulation.icaew.com

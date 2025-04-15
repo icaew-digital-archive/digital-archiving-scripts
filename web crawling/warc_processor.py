@@ -194,7 +194,7 @@ def create_wacz_from_warc(
     try:
         # Ensure the parent directory exists
         os.makedirs(os.path.dirname(output) or '.', exist_ok=True)
-        
+
         # Add .wacz extension if not present
         wacz_path = output if output.endswith('.wacz') else f"{output}.wacz"
 
@@ -203,7 +203,7 @@ def create_wacz_from_warc(
 
         # Build wacz.create() arguments as a list
         args = ['create', input_warc, '-o', wacz_path]
-        
+
         # Only add --detect-pages if no pages file is provided
         if not pages_file:
             args.append('--detect-pages')
