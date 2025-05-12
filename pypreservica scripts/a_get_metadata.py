@@ -5,7 +5,7 @@
 Script to export metadata and checksum values to CSV from a Preservica folder.
 
 Usage: 
-    combined_script.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--new_template]
+    a_get_metadata.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--new_template]
 
 Options:
     --preservica_folder_ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder
