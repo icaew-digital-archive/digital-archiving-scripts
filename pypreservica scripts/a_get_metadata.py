@@ -5,11 +5,12 @@
 Script to export metadata and checksum values to CSV from a Preservica folder.
 
 Usage: 
-    a_get_metadata.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--new_template]
+    combined_script.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--algorithm ALGORITHM] [--new_template]
 
 Options:
     --preservica_folder_ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder
     --metadata_csv METADATA_CSV  Output CSV filename for metadata and checksums
+    --algorithm ALGORITHM        The checksum algorithm to use (choices: MD5, SHA1, SHA256) [default: SHA1]
     --new_template               Flag to use new template with extended Dublin Core elements
 """
 
@@ -73,6 +74,8 @@ def parse_arguments():
                         help='Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder')
     parser.add_argument('--metadata_csv', required=True,
                         help='Output CSV filename for metadata and checksums')
+    parser.add_argument('--algorithm', default='SHA1', choices=['MD5', 'SHA1', 'SHA256'],
+                        help='The checksum algorithm to use (choices: MD5, SHA1, SHA256)')
     parser.add_argument('--new_template', action='store_true',
                         help='Flag to use new template with extended Dublin Core elements')
     args = parser.parse_args()
@@ -101,10 +104,8 @@ def get_all_descendants_with_logging(client, folder_ref):
     return descendants
 
 
-def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header, new_template):
+def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header, algorithm, new_template):
     global error_count
-    available_algorithms = set()
-    all_rows = []  # Store all rows until we know all algorithms
 
     for entity in descendants:
         if str(entity.entity_type) == 'EntityType.FOLDER':
@@ -136,58 +137,48 @@ def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header,
                 if child.text:
                     dc_values[dc_field].append(child.text)
 
-        # Create base row data with metadata
-        base_row_data = [asset.reference, asset.entity_type, asset.security_tag, asset.title, asset.description]
+        # Create base row data with all metadata
+        base_row_data = [
+            asset.reference, '', asset.entity_type,
+            asset.security_tag, asset.title, asset.description
+        ]
 
         # Add DC values if not using new template
         if not new_template:
-            for header in csv_header[5:]:  # Start after the base metadata columns
+            for header in csv_header[6:]:
                 if dc_values[header]:
                     base_row_data.append(dc_values[header].pop(0))
                 else:
                     base_row_data.append('')
 
         # Collect all checksum values
-        checksum_values = defaultdict(list)
+        checksum_values = []
         for representation in client.representations(asset):
             for content_object in client.content_objects(representation):
                 try:
                     for generation in client.generations(content_object):
                         for bitstream in generation.bitstreams:
-                            for algorithm in bitstream.fixity.keys():
-                                available_algorithms.add(algorithm)
-                                checksum_values[algorithm].append(bitstream.fixity[algorithm])
+                            if algorithm in bitstream.fixity:
+                                checksum_values.append(
+                                    bitstream.fixity[algorithm])
                 except Exception as e:
                     logging.error(f"Error processing asset {asset.title}: {e}")
                     error_count += 1
 
-        # Store the row data and checksums for later writing
-        all_rows.append((base_row_data, checksum_values))
+        # Write rows for checksums
+        if checksum_values:
+            # Write first row with all metadata
+            base_row_data[1] = checksum_values[0]
+            csv_writer.writerow(base_row_data)
 
-    # Now that we know all algorithms, create the final header
-    checksum_headers = [f'{alg} checksum' for alg in sorted(available_algorithms)]
-    final_header = ['assetId'] + checksum_headers + ['entity.entity_type', 'asset.security_tag', 'entity.title', 'entity.description']
-    if not new_template:
-        final_header.extend(csv_header[5:])  # Add DC headers
-    csv_writer.writerow(final_header)
-
-    # Write all rows with the complete set of checksum columns
-    for base_row_data, checksum_values in all_rows:
-        # Insert checksum values in the correct positions
-        row_data = [base_row_data[0]]  # Start with assetId
-        for algorithm in sorted(available_algorithms):
-            row_data.append(checksum_values[algorithm][0] if checksum_values[algorithm] else '')
-        row_data.extend(base_row_data[1:])  # Add the rest of the metadata
-        csv_writer.writerow(row_data)
-
-        # Write additional rows if there are multiple checksums
-        max_checksums = max(len(checksums) for checksums in checksum_values.values())
-        for i in range(1, max_checksums):
-            blank_row = [''] * len(final_header)
-            blank_row[0] = base_row_data[0]  # Keep the assetId
-            for j, algorithm in enumerate(sorted(available_algorithms), start=1):
-                blank_row[j] = checksum_values[algorithm][i] if i < len(checksum_values[algorithm]) else ''
-            csv_writer.writerow(blank_row)
+            # Write additional rows with only checksum
+            for checksum in checksum_values[1:]:
+                blank_row = [''] * len(base_row_data)  # Create empty row
+                blank_row[1] = checksum  # Set only the checksum
+                csv_writer.writerow(blank_row)
+        else:
+            # If no checksums found, write the row with empty checksum field
+            csv_writer.writerow(base_row_data)
 
 
 def main():
@@ -197,15 +188,14 @@ def main():
     client = initialize_client(username, password, tenant, server)
     args = parse_arguments()
 
+    csv_header = ['assetId', f'{args.algorithm} checksum', 'entity.entity_type',
+                  'asset.security_tag', 'entity.title', 'entity.description']
+    max_counts = defaultdict(int)
+
     logging.info("Retrieving all descendants of the specified folder")
     try:
         descendants = get_all_descendants_with_logging(
             client, args.preservica_folder_ref)
-
-        # Initial header for DC metadata collection
-        csv_header = ['assetId', 'entity.entity_type', 'asset.security_tag', 'entity.title', 'entity.description']
-        max_counts = defaultdict(int)
-
         for entity in descendants:
             try:
                 xml_string = client.metadata_for_entity(
@@ -216,39 +206,39 @@ def main():
                 logging.error(
                     f"Skipping entity {entity.reference} due to metadata error: {e}")
                 error_count += 1
-
-        extended_headers = []
-        for field, count in max_counts.items():
-            extended_headers.extend([field] * count)
-
-        if args.new_template:
-            extended_headers = ['dc:title', 'dc:creator', 'dc:subject', 'dc:description', 'dc:publisher', 'dc:contributor', 'dc:date',
-                              'dc:type', 'dc:type', 'dc:format', 'dc:identifier', 'dc:source', 'dc:language', 'dc:relation', 'dc:coverage', 'dc:rights']
-
-        csv_header.extend(extended_headers)
-
-        logging.info(f"Opening {args.metadata_csv} for writing")
-        with open(args.metadata_csv, 'w', encoding='UTF8', newline='') as metadata_csv_file:
-            csv_writer = csv.writer(
-                metadata_csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
-            logging.info("Processing entities and writing to CSV")
-            retrieve_metadata_and_checksums(
-                client, descendants, csv_writer, csv_header, args.new_template)
-
-        logging.info(
-            f"Metadata and checksums have been written to {args.metadata_csv}")
-
-        # Final error summary
-        if error_count > 0:
-            print(f"\n{error_count} errors occurred. Check '{log_file}' for details.")
-        else:
-            print("\nScript completed with no errors.")
-
     except Exception as e:
         logging.error(f"Error retrieving descendants: {e}")
         error_count += 1
         exit(1)
+
+    extended_headers = []
+    for field, count in max_counts.items():
+        extended_headers.extend([field] * count)
+
+    if args.new_template:
+        extended_headers = ['dc:title', 'dc:creator', 'dc:subject', 'dc:description', 'dc:publisher', 'dc:contributor', 'dc:date',
+                            'dc:type', 'dc:type', 'dc:format', 'dc:identifier', 'dc:source', 'dc:language', 'dc:relation', 'dc:coverage', 'dc:rights']
+
+    csv_header.extend(extended_headers)
+
+    logging.info(f"Opening {args.metadata_csv} for writing")
+    with open(args.metadata_csv, 'w', encoding='UTF8', newline='') as metadata_csv_file:
+        csv_writer = csv.writer(
+            metadata_csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        csv_writer.writerow(csv_header)
+
+        logging.info("Processing entities and writing to CSV")
+        retrieve_metadata_and_checksums(
+            client, descendants, csv_writer, csv_header, args.algorithm, args.new_template)
+
+    logging.info(
+        f"Metadata and checksums have been written to {args.metadata_csv}")
+
+    # Final error summary
+    if error_count > 0:
+        print(f"\n{error_count} errors occurred. Check '{log_file}' for details.")
+    else:
+        print("\nScript completed with no errors.")
 
 
 if __name__ == '__main__':
