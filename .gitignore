@@ -144,3 +144,7 @@ settings.json
 
 /csclient
 /test and archive files
+/video platform export scripts
+/pypreservica scripts/custom-metadata-test-WIP
+/pypreservica scripts/ingest-scripts-WIP
+/pypreservica scripts/pypreservica-video-package-ingest
