@@ -12,6 +12,7 @@ Options:
     --metadata_csv METADATA_CSV  Output CSV filename for metadata and checksums
     --algorithm ALGORITHM        The checksum algorithm to use (choices: MD5, SHA1, SHA256) [default: SHA1]
     --new_template               Flag to use new template with extended Dublin Core elements
+    --exclude_folders            List of folder references to exclude from processing. These folders and their children will be skipped.
 """
 
 import argparse
@@ -78,6 +79,8 @@ def parse_arguments():
                         help='The checksum algorithm to use (choices: MD5, SHA1, SHA256)')
     parser.add_argument('--new_template', action='store_true',
                         help='Flag to use new template with extended Dublin Core elements')
+    parser.add_argument('--exclude_folders', nargs='+',
+                        help='List of folder references to exclude from processing. These folders and their children will be skipped.')
     args = parser.parse_args()
     if args.preservica_folder_ref == 'root':
         args.preservica_folder_ref = None
@@ -95,13 +98,63 @@ def extract_dc_elements_and_update_header(xml_string, max_counts):
     return max_counts
 
 
-def get_all_descendants_with_logging(client, folder_ref):
+def get_all_descendants_with_logging(client, folder_ref, exclude_folders=None):
     logging.info(
         f"Starting retrieval of descendants for folder reference: {folder_ref}")
-    descendants = list(client.all_descendants(folder_ref))
+
+    if exclude_folders is None:
+        exclude_folders = []
+
+    # Get all descendants first
+    all_descendants = list(client.all_descendants(folder_ref))
+
+    # Create a set of excluded folder references for faster lookup
+    excluded_refs = set(exclude_folders)
+
+    # First, identify all entities that should be excluded (including children of excluded folders)
+    excluded_entities = set()
+    for entity in all_descendants:
+        try:
+            # Get the entity's parent reference
+            if str(entity.entity_type) == 'EntityType.FOLDER':
+                current = client.folder(entity.reference)
+            else:  # EntityType.ASSET
+                current = client.asset(entity.reference)
+
+            # If this is a folder and it's directly in the excluded list, add it
+            if str(entity.entity_type) == 'EntityType.FOLDER' and current.reference in excluded_refs:
+                excluded_entities.add(current.reference)
+                logging.info(
+                    f"Marking folder for exclusion: {current.reference}")
+                continue
+
+            # Check parent hierarchy for both folders and assets
+            parent_ref = current.parent
+            while parent_ref is not None:
+                if parent_ref in excluded_refs:
+                    excluded_entities.add(entity.reference)
+                    logging.info(
+                        f"Marking {'folder' if str(entity.entity_type) == 'EntityType.FOLDER' else 'asset'} for exclusion (child of excluded folder): {entity.reference}")
+                    break
+                parent_folder = client.folder(parent_ref)
+                parent_ref = parent_folder.parent
+        except Exception as e:
+            logging.error(
+                f"Error checking hierarchy for {entity.reference}: {e}")
+            continue
+
+    # Now filter the descendants using our complete set of excluded entities
+    filtered_descendants = []
+    for entity in all_descendants:
+        if entity.reference in excluded_entities:
+            logging.info(f"Skipping excluded entity: {entity.reference}")
+            continue
+        filtered_descendants.append(entity)
+
     logging.info(
-        f"Completed retrieval of descendants. Total items retrieved: {len(descendants)}")
-    return descendants
+        f"Completed retrieval of descendants. Total items retrieved: {len(filtered_descendants)} (after exclusions)")
+    logging.info(f"Total entities excluded: {len(excluded_entities)}")
+    return filtered_descendants
 
 
 def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header, algorithm, new_template):
@@ -195,7 +248,7 @@ def main():
     logging.info("Retrieving all descendants of the specified folder")
     try:
         descendants = get_all_descendants_with_logging(
-            client, args.preservica_folder_ref)
+            client, args.preservica_folder_ref, args.exclude_folders)
         for entity in descendants:
             try:
                 xml_string = client.metadata_for_entity(
