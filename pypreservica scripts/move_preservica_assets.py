@@ -2,21 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Move assets in Preservica to a specified folder (e.g., a "recycle bin" folder).
+Move assets in Preservica to a specified folder.
 
 This script can move assets in two ways:
 - A single asset (--asset)
 - Multiple assets (--assets-file)
 
-The script will move assets to the specified destination folder instead of deleting them,
-allowing for review before permanent deletion.
-
 Examples:
-    # Move a single asset to a recycle bin folder
-    python move_preservica_assets.py --asset "cc56e888-8d18-5582-0d41-65c168d611ee" --destination "recycle-bin-folder-id"
+    # Move a single asset to a folder
+    python move_preservica_assets.py --asset "cc56e888-8d18-5582-0d41-65c168d611ee" --destination "folder-id"
 
     # Move multiple assets listed in a file
-    python move_preservica_assets.py --assets-file "asset_list.txt" --destination "recycle-bin-folder-id"
+    python move_preservica_assets.py --assets-file "asset_list.txt" --destination "folder-id"
 
     # Skip confirmation prompts (use with caution!)
     python move_preservica_assets.py --asset "asset-id" --destination "folder-id" --force
@@ -84,7 +81,7 @@ def read_asset_list(file_path):
 
 
 def get_asset_info(client, asset_ref):
-    """Get basic information about an asset for confirmation."""
+    """Get basic information about an asset for display and move operation."""
     try:
         asset = client.asset(asset_ref)
         return {
@@ -100,7 +97,7 @@ def get_asset_info(client, asset_ref):
 
 
 def get_folder_info(client, folder_ref):
-    """Get basic information about a folder for confirmation."""
+    """Get basic information about a folder for display and move operation."""
     try:
         folder = client.folder(folder_ref)
         return {
@@ -114,7 +111,7 @@ def get_folder_info(client, folder_ref):
 
 
 def confirm_move(asset_info, destination_info):
-    """Prompt for confirmation before moving an asset."""
+    """Display asset and destination information and prompt for confirmation."""
     print("\nAsset to be moved:")
     print(f"Reference: {asset_info['reference']}")
     print(f"Title: {asset_info['title']}")
@@ -124,14 +121,24 @@ def confirm_move(asset_info, destination_info):
     print(f"Reference: {destination_info['reference']}")
     print(f"Title: {destination_info['title']}")
     print(f"Path: {destination_info['path']}")
-
-    response = input(
-        "\nAre you sure you want to move this asset? (yes/no): ").lower()
+    
+    response = input("\nAre you sure you want to move this asset? (yes/no): ").lower()
     return response == 'yes'
 
 
 def move_asset(client, asset_ref, destination_ref, force=False, skip_confirmation=False):
-    """Move a single asset to the destination folder and return True if successful."""
+    """Move a single asset to the destination folder.
+    
+    Args:
+        client: Preservica API client
+        asset_ref: Reference ID of the asset to move
+        destination_ref: Reference ID of the destination folder
+        force: If True, skip all confirmation prompts
+        skip_confirmation: If True, skip individual asset confirmation (used for bulk moves)
+    
+    Returns:
+        bool: True if move was successful or skipped, False if there was an error
+    """
     try:
         # Get asset and destination folder info for confirmation
         asset_info = get_asset_info(client, asset_ref)
@@ -169,10 +176,11 @@ def move_asset(client, asset_ref, destination_ref, force=False, skip_confirmatio
 
 
 def main(args):
+    """Main function to handle asset moves based on command line arguments."""
     # Setup logging first
     log_file = setup_logging(args.log_dir)
     logging.info(f"Starting move process. Log file: {log_file}")
-
+    
     if args.force:
         logging.warning("Force mode enabled - skipping confirmation prompts!")
 
@@ -180,22 +188,19 @@ def main(args):
     required_env_vars = ['USERNAME', 'PASSWORD', 'TENANT', 'SERVER']
     missing_vars = [var for var in required_env_vars if not os.getenv(var)]
     if missing_vars:
-        logging.error(
-            f"Missing required environment variables: {', '.join(missing_vars)}")
+        logging.error(f"Missing required environment variables: {', '.join(missing_vars)}")
         sys.exit(1)
 
     # Verify destination folder exists
     client = EntityAPI(username=USERNAME, password=PASSWORD,
                        tenant=TENANT, server=SERVER)
-
+    
     destination_info = get_folder_info(client, args.destination)
     if not destination_info:
-        logging.error(
-            f"Destination folder {args.destination} not found or not accessible")
+        logging.error(f"Destination folder {args.destination} not found or not accessible")
         sys.exit(1)
-
-    logging.info(
-        f"Moving assets to folder: {destination_info['title']} ({destination_info['path']})")
+    
+    logging.info(f"Moving assets to folder: {destination_info['title']} ({destination_info['path']})")
 
     error_count = 0
     start_time = datetime.now()
@@ -254,7 +259,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Move assets in Preservica to a specified folder (e.g., a recycle bin).",
+        description="Move assets in Preservica to a specified folder.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__)
 
@@ -267,15 +272,15 @@ if __name__ == "__main__":
 
     # Required arguments
     parser.add_argument('--destination',
-                        required=True,
-                        help='Preservica folder ID where assets will be moved to')
+                       required=True,
+                       help='Preservica folder ID where assets will be moved to')
 
     # Optional arguments
     parser.add_argument('--log-dir',
-                        help='Directory to store log files (default: current directory)')
+                       help='Directory to store log files (default: current directory)')
     parser.add_argument('--force',
-                        action='store_true',
-                        help='Skip confirmation prompts (use with caution!)')
+                       action='store_true',
+                       help='Skip confirmation prompts (use with caution!)')
 
     args = parser.parse_args()
     main(args)
