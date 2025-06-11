@@ -39,6 +39,7 @@ args = parser.parse_args()
 OAI_DC = 'http://www.openarchives.org/OAI/2.0/oai_dc/'
 DC = 'http://purl.org/dc/elements/1.1/'
 XSI = 'http://www.w3.org/2001/XMLSchema-instance'
+ICAEW = 'https://www.icaew.com/metadata/'
 
 entity = EntityAPI(username=USERNAME,
                    password=PASSWORD, tenant=TENANT, server=SERVER)
@@ -54,40 +55,61 @@ with open(args.csv_file, encoding='utf-8-sig', newline='') as csvfile:
         for row in reader:
             assetID = None
             asset = None
+            # --- OAI_DC XML ---
             xml_object = ET.Element(
                 'oai_dc:dc', {"xmlns:oai_dc": OAI_DC, "xmlns:dc": DC, "xmlns:xsi": XSI})
+            # --- ICAEW XML ---
+            icaew_object = ET.Element(
+                'icaew:ICAEW', {"xmlns:icaew": ICAEW, "xmlns": "http://preservica.com/XIP/v7.6"})
+            has_dc = False
+            has_icaew = False
             for value, header in zip(row, headers):
                 if header.startswith('dc:'):
-                    ET.SubElement(
-                        xml_object, header).text = value
+                    if value:
+                        ET.SubElement(
+                            xml_object, header).text = value
+                        has_dc = True
+                elif header.startswith('icaew:'):
+                    if value:
+                        ET.SubElement(
+                            icaew_object, header).text = value
+                        has_icaew = True
                 elif header.startswith('assetId'):
                     assetID = value
 
-            # The following removes empty elements from the XML - to remove empty repeated elements from csv file
-            root = etree.fromstring(ET.tostring(
+            # Remove empty elements from both XMLs
+            root_dc = etree.fromstring(ET.tostring(
                 xml_object, encoding='utf-8').decode('utf-8'))
-            for element in root.xpath(".//*[not(node())]"):
+            for element in root_dc.xpath(".//*[not(node())]"):
                 element.getparent().remove(element)
-            xml_request = etree.tostring(
-                root, pretty_print=False).decode('utf-8')
+            xml_request_dc = etree.tostring(
+                root_dc, pretty_print=False).decode('utf-8')
 
-            # The following does not remove empty elements from the XML
-            # xml_request = ET.tostring(
-            #     xml_object, encoding='utf-8', xml_declaration=True).decode('utf-8')
-            # print(xml_request)
+            root_icaew = etree.fromstring(ET.tostring(
+                icaew_object, encoding='utf-8').decode('utf-8'))
+            for element in root_icaew.xpath(".//*[not(node())]"):
+                element.getparent().remove(element)
+            xml_request_icaew = etree.tostring(
+                root_icaew, pretty_print=False).decode('utf-8')
 
             # Try/except to add metadata to asset or folder
-            try:
-                asset = entity.asset(assetID)
-                print(f"Adding metadata for assetID: {asset.reference}")
-                entity.add_metadata(asset, OAI_DC, xml_request)
-            except:
-                pass
-            try:
-                asset = entity.folder(assetID)
-                print(f"Adding metadata for assetID: {asset.reference}")
-                entity.add_metadata(asset, OAI_DC, xml_request)
-            except:
-                pass
+            for schema_uri, xml_request, present in [
+                (OAI_DC, xml_request_dc, has_dc),
+                (ICAEW, xml_request_icaew, has_icaew)
+            ]:
+                if not present:
+                    continue
+                try:
+                    asset = entity.asset(assetID)
+                    print(f"Adding {schema_uri} metadata for assetID: {asset.reference}")
+                    entity.add_metadata(asset, schema_uri, xml_request)
+                except:
+                    pass
+                try:
+                    asset = entity.folder(assetID)
+                    print(f"Adding {schema_uri} metadata for assetID: {asset.reference}")
+                    entity.add_metadata(asset, schema_uri, xml_request)
+                except:
+                    pass
     else:
         print("The CSV file should contain an assetId column containing the Preservica identifier for the asset to be updated")

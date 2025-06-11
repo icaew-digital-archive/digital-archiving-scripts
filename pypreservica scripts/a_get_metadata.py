@@ -98,6 +98,18 @@ def extract_dc_elements_and_update_header(xml_string, max_counts):
     return max_counts
 
 
+def extract_icaew_elements_and_update_header(xml_string, max_counts):
+    if xml_string is not None:
+        root = ET.fromstring(xml_string)
+        # ICAEW fields are under the ICAEW namespace
+        for child in root:
+            tag = child.tag.split('}')[-1]
+            icaew_field = f"icaew:{tag}"
+            if max_counts[icaew_field] < 1:
+                max_counts[icaew_field] = 1
+    return max_counts
+
+
 def get_all_descendants_with_logging(client, folder_ref, exclude_folders=None):
     logging.info(
         f"Starting retrieval of descendants for folder reference: {folder_ref}")
@@ -245,6 +257,11 @@ def main():
                   'asset.security_tag', 'entity.title', 'entity.description']
     max_counts = defaultdict(int)
 
+    # Always include ICAEW columns
+    icaew_fields = ['icaew:ContentType']
+    for field in icaew_fields:
+        max_counts[field] = 1
+
     logging.info("Retrieving all descendants of the specified folder")
     try:
         descendants = get_all_descendants_with_logging(
@@ -255,6 +272,11 @@ def main():
                     entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
                 max_counts = extract_dc_elements_and_update_header(
                     xml_string, max_counts)
+                # Also check ICAEW
+                icaew_xml = client.metadata_for_entity(
+                    entity, 'https://www.icaew.com/metadata/')
+                max_counts = extract_icaew_elements_and_update_header(
+                    icaew_xml, max_counts)
             except Exception as e:
                 logging.error(
                     f"Skipping entity {entity.reference} due to metadata error: {e}")
@@ -270,7 +292,7 @@ def main():
 
     if args.new_template:
         extended_headers = ['dc:title', 'dc:creator', 'dc:subject', 'dc:description', 'dc:publisher', 'dc:contributor', 'dc:date',
-                            'dc:type', 'dc:type', 'dc:format', 'dc:identifier', 'dc:source', 'dc:language', 'dc:relation', 'dc:coverage', 'dc:rights']
+                            'dc:type', 'dc:type', 'dc:format', 'dc:identifier', 'dc:source', 'dc:language', 'dc:relation', 'dc:coverage', 'dc:rights'] + icaew_fields
 
     csv_header.extend(extended_headers)
 
@@ -281,8 +303,83 @@ def main():
         csv_writer.writerow(csv_header)
 
         logging.info("Processing entities and writing to CSV")
-        retrieve_metadata_and_checksums(
-            client, descendants, csv_writer, csv_header, args.algorithm, args.new_template)
+        for entity in descendants:
+            # Get ICAEW metadata
+            icaew_values = {}
+            try:
+                icaew_xml = client.metadata_for_entity(entity, 'https://www.icaew.com/metadata/')
+                if icaew_xml is not None:
+                    root = ET.fromstring(icaew_xml)
+                    for child in root:
+                        tag = child.tag.split('}')[-1]
+                        icaew_field = f"icaew:{tag}"
+                        icaew_values[icaew_field] = child.text or ''
+            except Exception as e:
+                logging.error(f"Error extracting ICAEW metadata for {entity.reference}: {e}")
+            # Create base row data with all metadata
+            base_row_data = [
+                entity.reference, '', entity.entity_type,
+                getattr(entity, 'security_tag', ''), getattr(entity, 'title', ''), getattr(entity, 'description', '')
+            ]
+            # Add DC values if not using new template
+            if not args.new_template:
+                for header in csv_header[6:]:
+                    if header.startswith('dc:'):
+                        # Use OAI_DC extraction logic as before
+                        dc_values = defaultdict(list)
+                        try:
+                            xml_string = client.metadata_for_entity(
+                                entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+                            if xml_string is not None:
+                                root = ET.fromstring(xml_string)
+                                for child in root:
+                                    tag = child.tag.split('}')[-1]
+                                    dc_field = f"dc:{tag}"
+                                    if child.text:
+                                        dc_values[dc_field].append(child.text)
+                        except Exception:
+                            pass
+                        if dc_values[header]:
+                            base_row_data.append(dc_values[header].pop(0))
+                        else:
+                            base_row_data.append('')
+                    elif header.startswith('icaew:'):
+                        base_row_data.append(icaew_values.get(header, ''))
+                    else:
+                        base_row_data.append('')
+            else:
+                # For new template, just add blanks for ICAEW fields
+                for header in csv_header[6:]:
+                    if header.startswith('icaew:'):
+                        base_row_data.append(icaew_values.get(header, ''))
+                    else:
+                        base_row_data.append('')
+            # Collect all checksum values
+            checksum_values = []
+            for representation in client.representations(entity):
+                for content_object in client.content_objects(representation):
+                    try:
+                        for generation in client.generations(content_object):
+                            for bitstream in generation.bitstreams:
+                                if args.algorithm in bitstream.fixity:
+                                    checksum_values.append(
+                                        bitstream.fixity[args.algorithm])
+                    except Exception as e:
+                        logging.error(f"Error processing asset {getattr(entity, 'title', '')}: {e}")
+                        error_count += 1
+            # Write rows for checksums
+            if checksum_values:
+                # Write first row with all metadata
+                base_row_data[1] = checksum_values[0]
+                csv_writer.writerow(base_row_data)
+                # Write additional rows with only checksum
+                for checksum in checksum_values[1:]:
+                    blank_row = [''] * len(base_row_data)  # Create empty row
+                    blank_row[1] = checksum  # Set only the checksum
+                    csv_writer.writerow(blank_row)
+            else:
+                # If no checksums found, write the row with empty checksum field
+                csv_writer.writerow(base_row_data)
 
     logging.info(
         f"Metadata and checksums have been written to {args.metadata_csv}")

@@ -71,8 +71,12 @@ def read_entities_from_csv(csv_file):
         logging.error(f"Error reading CSV file: {e}", exc_info=True)
         raise
 
-def delete_entity_metadata_auto(client, entity_id):
-    """Fetch entity type from API and delete metadata accordingly."""
+def delete_entity_metadata_all_schemas(client, entity_id):
+    """Delete ICAEW and OAI_DC metadata schemas for an entity (asset or folder)."""
+    schemas_to_delete = [
+        "https://www.icaew.com/metadata/",
+        "http://www.openarchives.org/OAI/2.0/oai_dc/"
+    ]
     try:
         try:
             entity = client.asset(entity_id)
@@ -80,10 +84,17 @@ def delete_entity_metadata_auto(client, entity_id):
         except Exception:
             entity = client.folder(entity_id)
             entity_type = 'folder'
-        client.delete_metadata(entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-        return True, entity_type
+        success = True
+        for schema_uri in schemas_to_delete:
+            try:
+                client.delete_metadata(entity, schema_uri)
+                logging.info(f"Deleted metadata for schema {schema_uri} on {entity_type} {entity_id}")
+            except Exception as e:
+                logging.error(f"Failed to delete metadata for schema {schema_uri} on {entity_type} {entity_id}: {e}")
+                success = False
+        return success, entity_type
     except Exception as e:
-        logging.error(f"Failed to delete metadata for entity {entity_id}: {e}", exc_info=True)
+        logging.error(f"Failed to delete metadata for {entity_id}: {e}")
         return False, None
 
 def delete_from_csv(client, csv_file):
@@ -125,10 +136,10 @@ def delete_from_csv(client, csv_file):
             fail += 1
             continue
         logging.info(f"Processing entity {i}/{total}: {entity_id}")
-        ok, _ = delete_entity_metadata_auto(client, entity_id)
+        ok, _ = delete_entity_metadata_all_schemas(client, entity_id)
         if ok:
             success += 1
-            logging.info(f"Successfully deleted metadata for {entity_type}: {entity_id}")
+            logging.info(f"Successfully deleted all metadata for {entity_type}: {entity_id}")
         else:
             fail += 1
     logging.info(f"Metadata deletion completed: {success} succeeded, {fail} failed.")
@@ -165,15 +176,10 @@ def delete_from_folder(client, folder_ref):
             fail += 1
             continue
         logging.info(f"Deleting metadata for {entity_type} {i}/{total}: {entity_id}")
-        try:
-            if entity_type == 'folder':
-                obj = client.folder(entity_id)
-            else:
-                obj = client.asset(entity_id)
-            client.delete_metadata(obj, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+        ok, _ = delete_entity_metadata_all_schemas(client, entity_id)
+        if ok:
             success += 1
-        except Exception as e:
-            logging.error(f"Failed to delete metadata for {entity_type} {entity_id}: {e}", exc_info=True)
+        else:
             fail += 1
     logging.info(f"Metadata deletion completed: {success} succeeded, {fail} failed.")
 
