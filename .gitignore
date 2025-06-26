@@ -160,3 +160,4 @@ settings.json
 /pypreservica scripts/custom-metadata-test-WIP
 /pypreservica scripts/ingest-scripts-WIP
 /pypreservica scripts/pypreservica-video-package-ingest
+*.info.json
