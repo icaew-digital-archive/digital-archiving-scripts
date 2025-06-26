@@ -211,8 +211,14 @@ def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header,
         # Add DC values if not using new template
         if not new_template:
             for header in csv_header[6:]:
-                if dc_values[header]:
-                    base_row_data.append(dc_values[header].pop(0))
+                if header.startswith('dc:'):
+                    # Join all values for this field, or use empty string if none
+                    if dc_values[header]:
+                        base_row_data.append('; '.join(dc_values[header]))
+                    else:
+                        base_row_data.append('')
+                elif header.startswith('icaew:'):
+                    base_row_data.append('')
                 else:
                     base_row_data.append('')
 
@@ -304,8 +310,9 @@ def main():
 
         logging.info("Processing entities and writing to CSV")
         for entity in descendants:
-            # Get ICAEW metadata
+            dc_values = defaultdict(list)
             icaew_values = {}
+            # Get ICAEW metadata
             try:
                 icaew_xml = client.metadata_for_entity(entity, 'https://www.icaew.com/metadata/')
                 if icaew_xml is not None:
@@ -316,42 +323,57 @@ def main():
                         icaew_values[icaew_field] = child.text or ''
             except Exception as e:
                 logging.error(f"Error extracting ICAEW metadata for {entity.reference}: {e}")
+            # Extract DC metadata
+            try:
+                xml_string = client.metadata_for_entity(
+                    entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+                if xml_string is not None:
+                    root = ET.fromstring(xml_string)
+                    for child in root:
+                        tag = child.tag.split('}')[-1]
+                        dc_field = f"dc:{tag}"
+                        if child.text:
+                            dc_values[dc_field].append(child.text)
+            except Exception:
+                pass
             # Create base row data with all metadata
             base_row_data = [
                 entity.reference, '', entity.entity_type,
                 getattr(entity, 'security_tag', ''), getattr(entity, 'title', ''), getattr(entity, 'description', '')
             ]
-            # Add DC values if not using new template
+            # Add DC and ICAEW values
             if not args.new_template:
+                # Track how many times we've used each field for this row
+                field_usage = defaultdict(int)
                 for header in csv_header[6:]:
                     if header.startswith('dc:'):
-                        # Use OAI_DC extraction logic as before
-                        dc_values = defaultdict(list)
-                        try:
-                            xml_string = client.metadata_for_entity(
-                                entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-                            if xml_string is not None:
-                                root = ET.fromstring(xml_string)
-                                for child in root:
-                                    tag = child.tag.split('}')[-1]
-                                    dc_field = f"dc:{tag}"
-                                    if child.text:
-                                        dc_values[dc_field].append(child.text)
-                        except Exception:
-                            pass
-                        if dc_values[header]:
-                            base_row_data.append(dc_values[header].pop(0))
+                        value_list = dc_values[header]
+                        usage = field_usage[header]
+                        if usage < len(value_list):
+                            base_row_data.append(value_list[usage])
                         else:
                             base_row_data.append('')
+                        field_usage[header] += 1
                     elif header.startswith('icaew:'):
-                        base_row_data.append(icaew_values.get(header, ''))
+                        value = icaew_values.get(header, '')
+                        base_row_data.append(value)
                     else:
                         base_row_data.append('')
             else:
                 # For new template, just add blanks for ICAEW fields
+                field_usage = defaultdict(int)
                 for header in csv_header[6:]:
                     if header.startswith('icaew:'):
-                        base_row_data.append(icaew_values.get(header, ''))
+                        value = icaew_values.get(header, '')
+                        base_row_data.append(value)
+                    elif header.startswith('dc:'):
+                        value_list = dc_values[header]
+                        usage = field_usage[header]
+                        if usage < len(value_list):
+                            base_row_data.append(value_list[usage])
+                        else:
+                            base_row_data.append('')
+                        field_usage[header] += 1
                     else:
                         base_row_data.append('')
             # Collect all checksum values

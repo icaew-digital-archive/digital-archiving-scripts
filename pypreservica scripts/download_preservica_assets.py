@@ -12,6 +12,9 @@ This script can download assets in several ways:
 
 All downloads verify fixity values to ensure file integrity.
 
+CLI Options:
+    --original-only : Download only the original (first generation) files from each asset's Preservation representation. Skips derivatives and access copies (e.g., PDFs, ODTs, thumbnails).
+
 Examples:
     # Download from a single folder
     python download_preservica_assets.py --folder "bb45f999-7c07-4471-9c30-54b057c500ff" ./downloads
@@ -30,6 +33,9 @@ Examples:
 
     # Use asset reference numbers in filenames
     python download_preservica_assets.py --folder "folder-id" --use-asset-ref ./downloads
+
+    # Download only original (first generation) files from Preservation representation
+    python download_preservica_assets.py --folder "folder-id" --original-only ./downloads
 """
 
 import argparse
@@ -107,22 +113,36 @@ def get_download_path(download_folder, bitstream, asset_ref, use_asset_ref):
         return Path(download_folder) / bitstream.filename
 
 
-def download_asset(client, asset_ref, download_folder, use_asset_ref=False):
+def download_asset(client, asset_ref, download_folder, use_asset_ref=False, original_only=False):
     """Download a single asset and return True if successful, False if there were errors."""
     error_count = 0
     try:
         asset = client.asset(asset_ref)
         for representation in client.representations(asset):
+            # If original_only, only process Preservation representations
+            if original_only:
+                rep_name = (getattr(representation, 'name', '') or '').lower()
+                rep_type = (getattr(representation, 'type', '') or '').lower()
+                logging.debug(f"Representation name: '{rep_name}', type: '{rep_type}'")
+                if not rep_name and not rep_type:
+                    logging.warning(f"Representation has no name or type; treating as preservation for --original-only. (This may download more than you want.)")
+                    # fall through and process as preservation
+                elif 'preservation' not in rep_name and 'preservation' not in rep_type:
+                    logging.info(f"Skipping representation (not preservation): name='{rep_name}', type='{rep_type}'")
+                    continue  # skip non-preservation representations
             for content_object in client.content_objects(representation):
-                for generation in client.generations(content_object):
+                generations = list(client.generations(content_object))
+                # If original_only is True, only process the first generation
+                if original_only and generations:
+                    generations = [generations[0]]
+                    logging.info(f"Downloading only original generation for asset {asset_ref} in Preservation representation")
+                for generation in generations:
                     for bitstream in generation.bitstreams:
                         for algorithm, value in bitstream.fixity.items():
                             algorithm = algorithm.lower()
                             value = value.lower()
-
                         download_path = get_download_path(
                             download_folder, bitstream, asset_ref, use_asset_ref)
-
                         if download_path.exists():
                             if value == calculate_file_hash(download_path, algorithm):
                                 logging.info(
@@ -159,7 +179,7 @@ def read_id_list(file_path):
         raise
 
 
-def process_folder(client, folder_ref, download_folder, use_asset_ref=False):
+def process_folder(client, folder_ref, download_folder, use_asset_ref=False, original_only=False):
     """Process a single folder and return True if successful, False if there were errors."""
     error_count = 0
     try:
@@ -168,7 +188,7 @@ def process_folder(client, folder_ref, download_folder, use_asset_ref=False):
             folder_ref = None
 
         for asset in filter(only_assets, client.all_descendants(folder_ref)):
-            if not download_asset(client, asset.reference, download_folder, use_asset_ref):
+            if not download_asset(client, asset.reference, download_folder, use_asset_ref, original_only):
                 error_count += 1
         return error_count == 0
     except Exception as e:
@@ -215,6 +235,8 @@ def main(args):
     logging.info(f"Starting download process. Log file: {log_file}")
     if args.use_asset_ref:
         logging.info("Using asset reference numbers in filenames")
+    if hasattr(args, 'original_only') and args.original_only:
+        logging.info("Downloading only original (first generation) files")
 
     # Create download directory if it doesn't exist
     download_path = Path(args.download_folder)
@@ -237,11 +259,11 @@ def main(args):
 
     try:
         if args.folder:
-            if not process_folder(client, args.folder, download_path, args.use_asset_ref):
+            if not process_folder(client, args.folder, download_path, args.use_asset_ref, args.original_only):
                 error_count += 1
 
         elif args.asset:
-            if not download_asset(client, args.asset, download_path, args.use_asset_ref):
+            if not download_asset(client, args.asset, download_path, args.use_asset_ref, args.original_only):
                 error_count += 1
 
         elif args.assets_file:
@@ -253,7 +275,7 @@ def main(args):
             for i, asset_id in enumerate(asset_ids, 1):
                 logging.info(
                     f"Processing asset {i}/{total_assets}: {asset_id}")
-                if download_asset(client, asset_id, download_path, args.use_asset_ref):
+                if download_asset(client, asset_id, download_path, args.use_asset_ref, args.original_only):
                     successful_downloads += 1
                 else:
                     error_count += 1
@@ -270,7 +292,7 @@ def main(args):
             for i, folder_id in enumerate(folder_ids, 1):
                 logging.info(
                     f"Processing folder {i}/{total_folders}: {folder_id}")
-                if process_folder(client, folder_id, download_path, args.use_asset_ref):
+                if process_folder(client, folder_id, download_path, args.use_asset_ref, args.original_only):
                     successful_folders += 1
                 else:
                     error_count += 1
@@ -321,6 +343,9 @@ if __name__ == "__main__":
     parser.add_argument('--use-asset-ref',
                         action='store_true',
                         help='Use asset reference numbers in filenames instead of original filenames')
+    parser.add_argument('--original-only',
+                        action='store_true',
+                        help='Download only the original (first generation) files from each asset')
 
     args = parser.parse_args()
     main(args)
