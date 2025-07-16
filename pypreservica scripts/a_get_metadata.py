@@ -310,6 +310,14 @@ def main():
 
         logging.info("Processing entities and writing to CSV")
         for entity in descendants:
+            # Get the properly instantiated asset/folder object
+            if str(entity.entity_type) == 'EntityType.FOLDER':
+                asset = client.folder(entity.reference)
+            elif str(entity.entity_type) == 'EntityType.ASSET':
+                asset = client.asset(entity.reference)
+            else:
+                continue
+                
             dc_values = defaultdict(list)
             icaew_values = {}
             # Get ICAEW metadata
@@ -338,8 +346,8 @@ def main():
                 pass
             # Create base row data with all metadata
             base_row_data = [
-                entity.reference, '', entity.entity_type,
-                getattr(entity, 'security_tag', ''), getattr(entity, 'title', ''), getattr(entity, 'description', '')
+                asset.reference, '', asset.entity_type,
+                asset.security_tag, asset.title, asset.description
             ]
             # Add DC and ICAEW values
             if not args.new_template:
@@ -387,7 +395,7 @@ def main():
                                     checksum_values.append(
                                         bitstream.fixity[args.algorithm])
                     except Exception as e:
-                        logging.error(f"Error processing asset {getattr(entity, 'title', '')}: {e}")
+                        logging.error(f"Error processing asset {asset.title}: {e}")
                         error_count += 1
             # Write rows for checksums
             if checksum_values:
