@@ -2,17 +2,45 @@
 # -*- coding: utf-8 -*-
 
 """
-Script to export metadata and checksum values to CSV from a Preservica folder.
+Script to export metadata, checksum values, and file format information to CSV from a Preservica folder.
+
+This script extracts comprehensive information from Preservica assets including:
+- Asset metadata (title, description, security tag, entity type)
+- Multiple checksum algorithms (MD5, SHA1, SHA256) by default
+- File format information (filename, file size, file extension)
+- Full Preservica path from root to asset
+- Dublin Core and ICAEW metadata
+- Only processes first generation (original ingested) assets
 
 Usage: 
-    combined_script.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--algorithm ALGORITHM] [--new_template]
+    a_get_metadata.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--algorithm ALGORITHM] [--new_template] [--exclude_folders EXCLUDE_FOLDERS]
 
 Options:
     --preservica_folder_ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder
     --metadata_csv METADATA_CSV  Output CSV filename for metadata and checksums
-    --algorithm ALGORITHM        The checksum algorithm to use (choices: MD5, SHA1, SHA256) [default: SHA1]
+    --algorithm ALGORITHM        The checksum algorithm to use (choices: MD5, SHA1, SHA256, ALL) [default: ALL]
     --new_template               Flag to use new template with extended Dublin Core elements
     --exclude_folders            List of folder references to exclude from processing. These folders and their children will be skipped.
+
+Output CSV Columns:
+    ALL algorithm mode:
+        assetId, MD5 checksum, SHA1 checksum, SHA256 checksum, entity.entity_type, asset.security_tag, 
+        entity.title, entity.description, preservica_path, filename, file_size, file_extension, 
+        icaew:ContentType, dc:title, dc:description, dc:date, dc:type, dc:identifier
+    
+    Single algorithm mode:
+        assetId, [ALGORITHM] checksum, entity.entity_type, asset.security_tag, entity.title, 
+        entity.description, preservica_path, filename, file_size, file_extension, 
+        icaew:ContentType, dc:title, dc:description, dc:date, dc:type, dc:identifier
+
+Features:
+    - Extracts all available checksum algorithms by default (MD5, SHA1, SHA256)
+    - Includes full Preservica folder path from root to asset
+    - Processes only first generation (original ingested) assets
+    - Supports exclusion of specific folders and their children
+    - Handles both Dublin Core and ICAEW metadata
+    - Extracts file format information from bitstreams
+    - Provides comprehensive error logging
 """
 
 import argparse
@@ -75,8 +103,8 @@ def parse_arguments():
                         help='Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder')
     parser.add_argument('--metadata_csv', required=True,
                         help='Output CSV filename for metadata and checksums')
-    parser.add_argument('--algorithm', default='SHA1', choices=['MD5', 'SHA1', 'SHA256'],
-                        help='The checksum algorithm to use (choices: MD5, SHA1, SHA256)')
+    parser.add_argument('--algorithm', default='ALL', choices=['MD5', 'SHA1', 'SHA256', 'ALL'],
+                        help='The checksum algorithm to use (choices: MD5, SHA1, SHA256, ALL) [default: ALL]')
     parser.add_argument('--new_template', action='store_true',
                         help='Flag to use new template with extended Dublin Core elements')
     parser.add_argument('--exclude_folders', nargs='+',
@@ -108,6 +136,49 @@ def extract_icaew_elements_and_update_header(xml_string, max_counts):
             if max_counts[icaew_field] < 1:
                 max_counts[icaew_field] = 1
     return max_counts
+
+
+def extract_file_extension(filename):
+    """Extract file extension from filename without the period"""
+    if filename:
+        return os.path.splitext(filename)[1].lower().lstrip('.')
+    return ''
+
+
+def get_full_preservica_path(client, entity):
+    """Get the full Preservica path from root to the entity"""
+    path_parts = []
+    current = entity
+    
+    try:
+        # Get the properly instantiated entity
+        if str(entity.entity_type) == 'EntityType.FOLDER':
+            current = client.folder(entity.reference)
+        else:  # EntityType.ASSET
+            current = client.asset(entity.reference)
+        
+        # Add the current entity's title
+        path_parts.append(current.title or current.reference)
+        
+        # Traverse up the hierarchy
+        parent_ref = current.parent
+        while parent_ref is not None:
+            try:
+                parent_folder = client.folder(parent_ref)
+                path_parts.append(parent_folder.title or parent_folder.reference)
+                parent_ref = parent_folder.parent
+            except Exception as e:
+                logging.error(f"Error getting parent folder {parent_ref}: {e}")
+                path_parts.append(parent_ref)  # Add reference if title unavailable
+                break
+        
+        # Reverse the list to get root-to-leaf order and join with '/'
+        path_parts.reverse()
+        return '/'.join(path_parts)
+        
+    except Exception as e:
+        logging.error(f"Error building path for {entity.reference}: {e}")
+        return entity.reference  # Fallback to reference if path building fails
 
 
 def get_all_descendants_with_logging(client, folder_ref, exclude_folders=None):
@@ -259,8 +330,15 @@ def main():
     client = initialize_client(username, password, tenant, server)
     args = parse_arguments()
 
-    csv_header = ['assetId', f'{args.algorithm} checksum', 'entity.entity_type',
-                  'asset.security_tag', 'entity.title', 'entity.description']
+    # Updated CSV header to include format information
+    if args.algorithm == 'ALL':
+        csv_header = ['assetId', 'MD5 checksum', 'SHA1 checksum', 'SHA256 checksum', 'entity.entity_type',
+                      'asset.security_tag', 'entity.title', 'entity.description', 'preservica_path',
+                      'filename', 'file_size', 'file_extension']
+    else:
+        csv_header = ['assetId', f'{args.algorithm} checksum', 'entity.entity_type',
+                      'asset.security_tag', 'entity.title', 'entity.description', 'preservica_path',
+                      'filename', 'file_size', 'file_extension']
     max_counts = defaultdict(int)
 
     # Always include ICAEW columns
@@ -344,72 +422,172 @@ def main():
                             dc_values[dc_field].append(child.text)
             except Exception:
                 pass
-            # Create base row data with all metadata
+            # Create base row data with asset info only
             base_row_data = [
                 asset.reference, '', asset.entity_type,
-                asset.security_tag, asset.title, asset.description
+                asset.security_tag, asset.title, asset.description, get_full_preservica_path(client, entity)
             ]
-            # Add DC and ICAEW values
+            
+            # Prepare DC and ICAEW metadata separately
+            dc_icaew_data = []
             if not args.new_template:
                 # Track how many times we've used each field for this row
                 field_usage = defaultdict(int)
-                for header in csv_header[6:]:
+                # Determine the starting column for DC/ICAEW metadata based on algorithm mode
+                if args.algorithm == 'ALL':
+                    dc_start_column = 12  # After asset info (5) + checksums (3) + format fields (3)
+                else:
+                    dc_start_column = 10  # After asset info (7) + format fields (3)
+                
+                for header in csv_header[dc_start_column:]:  # Start from appropriate column
                     if header.startswith('dc:'):
                         value_list = dc_values[header]
                         usage = field_usage[header]
                         if usage < len(value_list):
-                            base_row_data.append(value_list[usage])
+                            dc_icaew_data.append(value_list[usage])
                         else:
-                            base_row_data.append('')
+                            dc_icaew_data.append('')
                         field_usage[header] += 1
                     elif header.startswith('icaew:'):
                         value = icaew_values.get(header, '')
-                        base_row_data.append(value)
+                        dc_icaew_data.append(value)
                     else:
-                        base_row_data.append('')
+                        dc_icaew_data.append('')
             else:
                 # For new template, just add blanks for ICAEW fields
                 field_usage = defaultdict(int)
-                for header in csv_header[6:]:
+                # Determine the starting column for DC/ICAEW metadata based on algorithm mode
+                if args.algorithm == 'ALL':
+                    dc_start_column = 12  # After asset info (5) + checksums (3) + format fields (3)
+                else:
+                    dc_start_column = 10  # After asset info (7) + format fields (3)
+                
+                for header in csv_header[dc_start_column:]:  # Start from appropriate column
                     if header.startswith('icaew:'):
                         value = icaew_values.get(header, '')
-                        base_row_data.append(value)
+                        dc_icaew_data.append(value)
                     elif header.startswith('dc:'):
                         value_list = dc_values[header]
                         usage = field_usage[header]
                         if usage < len(value_list):
-                            base_row_data.append(value_list[usage])
+                            dc_icaew_data.append(value_list[usage])
                         else:
-                            base_row_data.append('')
+                            dc_icaew_data.append('')
                         field_usage[header] += 1
                     else:
-                        base_row_data.append('')
-            # Collect all checksum values
-            checksum_values = []
+                        dc_icaew_data.append('')
+            
+            # Collect format and checksum information for first generation only
+            format_checksum_data = []
             for representation in client.representations(entity):
                 for content_object in client.content_objects(representation):
                     try:
-                        for generation in client.generations(content_object):
-                            for bitstream in generation.bitstreams:
-                                if args.algorithm in bitstream.fixity:
-                                    checksum_values.append(
-                                        bitstream.fixity[args.algorithm])
+                        # Get only the first generation (original ingested content)
+                        generations = list(client.generations(content_object))
+                        if generations:
+                            first_generation = generations[0]  # First generation only
+                            for bitstream in first_generation.bitstreams:
+                                if args.algorithm == 'ALL':
+                                    format_data = {
+                                        'filename': bitstream.filename,
+                                        'file_size': bitstream.length,  # Use length instead of file_size
+                                        'file_extension': extract_file_extension(bitstream.filename),
+                                        'md5_checksum': bitstream.fixity.get('MD5', ''),
+                                        'sha1_checksum': bitstream.fixity.get('SHA1', ''),
+                                        'sha256_checksum': bitstream.fixity.get('SHA256', '')
+                                    }
+                                else:
+                                    format_data = {
+                                        'filename': bitstream.filename,
+                                        'file_size': bitstream.length,  # Use length instead of file_size
+                                        'file_extension': extract_file_extension(bitstream.filename),
+                                        'checksum': bitstream.fixity.get(args.algorithm, '') if args.algorithm in bitstream.fixity else ''
+                                    }
+                                format_checksum_data.append(format_data)
                     except Exception as e:
-                        logging.error(f"Error processing asset {asset.title}: {e}")
+                        logging.error(f"Error processing bitstream for {asset.title}: {e}")
                         error_count += 1
-            # Write rows for checksums
-            if checksum_values:
-                # Write first row with all metadata
-                base_row_data[1] = checksum_values[0]
-                csv_writer.writerow(base_row_data)
-                # Write additional rows with only checksum
-                for checksum in checksum_values[1:]:
-                    blank_row = [''] * len(base_row_data)  # Create empty row
-                    blank_row[1] = checksum  # Set only the checksum
-                    csv_writer.writerow(blank_row)
+            
+            # Write rows for format and checksum data
+            if format_checksum_data:
+                # Write first row with all metadata and format info
+                first_format_data = format_checksum_data[0]
+                
+                if args.algorithm == 'ALL':
+                    # Build complete row with multiple checksums
+                    complete_row = [base_row_data[0]]  # assetId
+                    complete_row.extend([
+                        first_format_data['md5_checksum'],
+                        first_format_data['sha1_checksum'], 
+                        first_format_data['sha256_checksum']
+                    ])  # All checksums (columns 1-3)
+                    complete_row.extend(base_row_data[2:7])  # entity_type, security_tag, title, description, path (columns 4-8)
+                    complete_row.extend([
+                        first_format_data['filename'],
+                        first_format_data['file_size'],
+                        first_format_data['file_extension']
+                    ])  # Format data (columns 9-11)
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 12+)
+                    csv_writer.writerow(complete_row)
+                    
+                    # Write additional rows with only checksums and format info (for multiple files)
+                    for format_data in format_checksum_data[1:]:
+                        # Create row with only asset ID, checksums, and format data
+                        blank_row = [base_row_data[0]]  # assetId
+                        blank_row.extend([
+                            format_data['md5_checksum'],
+                            format_data['sha1_checksum'],
+                            format_data['sha256_checksum']
+                        ])  # All checksums
+                        blank_row.extend(['', '', '', '', ''])  # entity_type, security_tag, title, description, path (empty)
+                        blank_row.extend([
+                            format_data['filename'],
+                            format_data['file_size'],
+                            format_data['file_extension']
+                        ])  # Format data
+                        blank_row.extend([''] * len(dc_icaew_data))  # Empty DC/ICAEW fields
+                        csv_writer.writerow(blank_row)
+                else:
+                    # Single algorithm mode
+                    base_row_data[1] = first_format_data['checksum']  # checksum
+                    
+                    # Build complete row: asset info + format data + DC/ICAEW metadata
+                    complete_row = base_row_data[:7]  # Asset info (first 7 columns including path)
+                    complete_row.extend([
+                        first_format_data['filename'],
+                        first_format_data['file_size'],
+                        first_format_data['file_extension']
+                    ])  # Format data (columns 7-9)
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 10+)
+                    csv_writer.writerow(complete_row)
+                    
+                    # Write additional rows with only checksum and format info (for multiple files)
+                    for format_data in format_checksum_data[1:]:
+                        # Create row with only asset ID, checksum, and format data
+                        blank_row = [base_row_data[0]]  # assetId
+                        blank_row.append(format_data['checksum'])  # checksum
+                        blank_row.extend(['', '', '', '', ''])  # entity_type, security_tag, title, description, path (empty)
+                        blank_row.extend([
+                            format_data['filename'],
+                            format_data['file_size'],
+                            format_data['file_extension']
+                        ])  # Format data
+                        blank_row.extend([''] * len(dc_icaew_data))  # Empty DC/ICAEW fields
+                        csv_writer.writerow(blank_row)
             else:
-                # If no checksums found, write the row with empty checksum field
-                csv_writer.writerow(base_row_data)
+                # If no format data found, write the row with empty format fields
+                if args.algorithm == 'ALL':
+                    complete_row = [base_row_data[0]]  # assetId
+                    complete_row.extend(['', '', ''])  # Empty checksums (MD5, SHA1, SHA256)
+                    complete_row.extend(base_row_data[2:7])  # entity_type, security_tag, title, description, path
+                    complete_row.extend(['', '', ''])  # Empty format fields
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata
+                    csv_writer.writerow(complete_row)
+                else:
+                    complete_row = base_row_data[:7]  # Asset info (first 7 columns including path)
+                    complete_row.extend(['', '', ''])  # Empty format fields (columns 7-9)
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 10+)
+                    csv_writer.writerow(complete_row)
 
     logging.info(
         f"Metadata and checksums have been written to {args.metadata_csv}")
