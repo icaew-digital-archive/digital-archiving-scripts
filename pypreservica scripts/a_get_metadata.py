@@ -13,7 +13,7 @@ This script extracts comprehensive information from Preservica assets including:
 - Only processes first generation (original ingested) assets
 
 Usage: 
-    a_get_metadata.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--algorithm ALGORITHM] [--new_template] [--exclude_folders EXCLUDE_FOLDERS]
+    a_get_metadata.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--algorithm ALGORITHM] [--new_template] [--exclude_folders EXCLUDE_FOLDERS] [--entity_type {assets,folders,both}]
 
 Options:
     --preservica_folder_ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder
@@ -21,6 +21,7 @@ Options:
     --algorithm ALGORITHM        The checksum algorithm to use (choices: MD5, SHA1, SHA256, ALL) [default: ALL]
     --new_template               Flag to use new template with extended Dublin Core elements
     --exclude_folders            List of folder references to exclude from processing. These folders and their children will be skipped.
+    --entity_type                Type of entities to include in output (choices: assets, folders, both) [default: both]
 
 Output CSV Columns:
     ALL algorithm mode:
@@ -41,6 +42,7 @@ Features:
     - Handles both Dublin Core and ICAEW metadata
     - Extracts file format information from bitstreams
     - Provides comprehensive error logging
+    - Supports filtering by entity type (assets only, folders only, or both)
 """
 
 import argparse
@@ -109,6 +111,8 @@ def parse_arguments():
                         help='Flag to use new template with extended Dublin Core elements')
     parser.add_argument('--exclude_folders', nargs='+',
                         help='List of folder references to exclude from processing. These folders and their children will be skipped.')
+    parser.add_argument('--entity_type', default='both', choices=['assets', 'folders', 'both'],
+                        help='Type of entities to include in output (choices: assets, folders, both) [default: both]')
     args = parser.parse_args()
     if args.preservica_folder_ref == 'root':
         args.preservica_folder_ref = None
@@ -388,6 +392,12 @@ def main():
 
         logging.info("Processing entities and writing to CSV")
         for entity in descendants:
+            # Filter by entity type if specified
+            if args.entity_type == 'assets' and str(entity.entity_type) != 'EntityType.ASSET':
+                continue
+            elif args.entity_type == 'folders' and str(entity.entity_type) != 'EntityType.FOLDER':
+                continue
+            
             # Get the properly instantiated asset/folder object
             if str(entity.entity_type) == 'EntityType.FOLDER':
                 asset = client.folder(entity.reference)
