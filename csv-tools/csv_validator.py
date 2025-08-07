@@ -53,8 +53,21 @@ class CSVValidator:
     def __init__(self, ignored_fields: Set[str] = None):
         """Initialize the validator with validation rules."""
         
-        # Fields to ignore during validation
-        self.ignored_fields = ignored_fields or set()
+        # Default ignored fields
+        default_ignored = {'dc:source', 'dc:coverage', 'dc:rights', 'dc:contributor', 'dc:identifier'}
+        if ignored_fields is not None:
+            # User specified ignored fields
+            if len(ignored_fields) == 0:
+                # Empty set means include all fields (ignore none)
+                self.ignored_fields = set()
+            else:
+                # User specified some fields to ignore, add to defaults
+                self.ignored_fields = ignored_fields.union(default_ignored)
+        else:
+            # Use default ignored fields
+            self.ignored_fields = default_ignored.copy()  # Make a copy to avoid modifying the original
+        
+
         
         # Hardcoded acronyms for ICAEW content
         self.acronyms = {
@@ -135,6 +148,12 @@ class CSVValidator:
         
         # Internal reference pattern for unknown dates
         self.internal_ref_pattern_with_unknown = r'^(\d{4})(\d{2})(\d{2})-[A-Za-z0-9-]+$'
+        
+        # Track field values by asset ID to check if ALL instances are empty
+        self.asset_field_values = {}  # {asset_id: {field_name: [values]}}
+        
+        # Track which assets have already been reported for empty fields
+        self.reported_empty_fields = set()  # {(asset_id, field_name)}
         
         # Initialize error tracking
         self.errors = []
@@ -443,15 +462,26 @@ class CSVValidator:
         return issues
 
     def validate_required_fields(self, row: Dict[str, str], row_num: int) -> List[str]:
-        """Validate that all required fields are not empty."""
+        """Validate that all required fields are not empty, tracking by asset ID."""
         issues = []
+        asset_id = row.get('assetId', 'Unknown')
         
+        # Check if ALL instances of each field are empty for this asset
         for field in self.required_fields:
             if field in self.ignored_fields:
                 continue  # Skip ignored fields
-            value = row.get(field, '')
-            if not value or value.strip() == '':
-                issues.append(f"Required field '{field}' is empty")
+            if asset_id in self.asset_field_values and field in self.asset_field_values[asset_id]:
+                all_values = self.asset_field_values[asset_id][field]
+                # Check if ALL values for this field are empty
+                if all(not value or value.strip() == '' for value in all_values):
+                    # Only report this error once per asset-field combination
+                    if (asset_id, field) not in self.reported_empty_fields:
+                        issues.append(f"Required field '{field}' is empty for all instances of asset {asset_id}")
+                        self.reported_empty_fields.add((asset_id, field))
+                else:
+                    # If the field has content in any row, remove it from reported empty fields
+                    # (in case it was previously reported as empty but now has content)
+                    self.reported_empty_fields.discard((asset_id, field))
         
         return issues
 
@@ -762,19 +792,72 @@ class CSVValidator:
         
         try:
             with open(csv_file, 'r', encoding='utf-8') as file:
-                reader = csv.DictReader(file)
+                # Read the raw CSV data to handle duplicate columns properly
+                csv_data = list(csv.reader(file))
+                if not csv_data:
+                    print("Error: CSV file is empty.")
+                    sys.exit(1)
+                
+                headers = csv_data[0]
+                
+
                 
                 # Validate headers first
-                header_issues = self.validate_headers(reader.fieldnames)
+                header_issues = self.validate_headers(headers)
                 if header_issues:
                     print("\nHEADER VALIDATION ISSUES:")
                     for issue in header_issues:
                         print(f"  {self.get_error_emoji(issue)} {issue}")
                         self.errors.append((0, issue))  # Row 0 for header issues
                 
-                for row_num, row in enumerate(reader, start=2):  # Start at 2 because row 1 is header
+                # Create a mapping from field name to all column indices (handle duplicates)
+                field_to_columns = {}
+                for i, header in enumerate(headers):
+                    if header not in field_to_columns:
+                        field_to_columns[header] = []
+                    field_to_columns[header].append(i)
+                
+                # First pass: collect all field values by asset ID
+                rows = []
+                for row_num, row_data in enumerate(csv_data[1:], start=2):  # Start at 2 because row 1 is header
                     self.stats['total_rows'] += 1
                     
+                    # Convert row data to dict using our field mapping (handle duplicates by combining values)
+                    row = {}
+                    for field_name, col_indices in field_to_columns.items():
+                        values = []
+                        for col_index in col_indices:
+                            if col_index < len(row_data):
+                                value = row_data[col_index].strip()
+                                if value:  # Only add non-empty values
+                                    values.append(value)
+                        # Join multiple values with semicolon, or use first value if only one
+                        if values:
+                            row[field_name] = '; '.join(values) if len(values) > 1 else values[0]
+                        else:
+                            row[field_name] = ''
+                    
+                    rows.append((row_num, row))
+                    
+                    # Track field values for this asset
+                    asset_id = row.get('assetId', 'Unknown')
+                    if asset_id not in self.asset_field_values:
+                        self.asset_field_values[asset_id] = {}
+                    
+                    for field in self.required_fields:
+                        if field in self.ignored_fields:
+                            continue
+                        value = row.get(field, '')
+                        if field not in self.asset_field_values[asset_id]:
+                            self.asset_field_values[asset_id][field] = []
+                        self.asset_field_values[asset_id][field].append(value)
+                        
+
+                
+
+                
+                # Second pass: validate each row with complete asset information
+                for row_num, row in rows:
                     errors, warnings = self.validate_row(row, row_num)
                     
                     # Get assetId for context
@@ -838,9 +921,22 @@ class CSVValidator:
 
 def main():
     """Main function to run the CSV validator."""
-    parser = argparse.ArgumentParser(description='Validate CSV metadata files against ICAEW formatting rules.')
+    parser = argparse.ArgumentParser(
+        description='Validate CSV metadata files against ICAEW formatting rules.',
+        epilog="""
+Default ignored fields: dc:source, dc:coverage, dc:rights, dc:contributor, dc:identifier
+
+To include these fields in validation, use the --ignore_fields option with an empty string or 
+explicitly list only the fields you want to ignore. For example:
+  --ignore_fields=""  # Include all fields in validation
+  --ignore_fields="dc:source,dc:coverage"  # Only ignore these two fields
+        """
+    )
     parser.add_argument('csv_file', help='Path to the CSV file to validate')
-    parser.add_argument('--ignore_fields', help='Comma-separated list of fields to ignore during validation (e.g., "icaew:ContentType,dc:creator")')
+    parser.add_argument('--ignore_fields', 
+                       help='Comma-separated list of fields to ignore during validation. '
+                            'By default, dc:source, dc:coverage, dc:rights, dc:contributor, '
+                            'and dc:identifier are ignored. Use empty string to include all fields.')
     
     args = parser.parse_args()
     
@@ -850,9 +946,17 @@ def main():
     
     # Parse ignored fields
     ignored_fields = set()
-    if args.ignore_fields:
-        ignored_fields = {field.strip() for field in args.ignore_fields.split(',')}
-        print(f"Ignoring fields: {', '.join(sorted(ignored_fields))}")
+    if args.ignore_fields is not None:  # Allow empty string to mean "include all fields"
+        if args.ignore_fields.strip() == "":
+            # Empty string means include all fields (ignore none)
+            ignored_fields = set()
+        else:
+            ignored_fields = {field.strip() for field in args.ignore_fields.split(',')}
+        print(f"Ignoring fields: {', '.join(sorted(ignored_fields)) if ignored_fields else 'none'}")
+    else:
+        # No --ignore_fields argument provided, use defaults
+        print("Using default ignored fields: dc:source, dc:coverage, dc:rights, dc:contributor, dc:identifier")
+        ignored_fields = None  # This will trigger the default behavior in CSVValidator
     
     validator = CSVValidator(ignored_fields=ignored_fields)
     validator.validate_csv(args.csv_file)
