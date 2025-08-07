@@ -134,20 +134,9 @@ Examples:
     merged.columns = merged.columns.str.replace(
         '_ai', '').str.replace('_semaphore', '')
     
-    # Handle duplicate dc:subject columns by combining them
-    print("🔄 Processing duplicate dc:subject columns...")
-    subject_columns = [col for col in merged.columns if col.startswith('dc:subject')]
-    
-    if len(subject_columns) > 1:
-        # Combine all dc:subject columns into a single column
-        merged['dc:subject'] = merged[subject_columns].apply(
-            lambda row: '; '.join([str(val) for val in row if pd.notna(val) and str(val).strip()]), 
-            axis=1
-        )
-        
-        # Remove the duplicate columns
-        columns_to_drop = [col for col in subject_columns if col != 'dc:subject']
-        merged = merged.drop(columns=columns_to_drop)
+    # Rename all dc:subject.X columns to just dc:subject
+    merged.columns = merged.columns.str.replace(
+        r'dc:subject\.\d+', 'dc:subject', regex=True)
     
     # --- Save final result ---
     try:
