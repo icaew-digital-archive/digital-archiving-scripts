@@ -13,15 +13,15 @@ This script extracts comprehensive information from Preservica assets including:
 - Only processes first generation (original ingested) assets
 
 Usage: 
-    a_get_metadata.py [-h] --preservica_folder_ref --metadata_csv METADATA_CSV [--algorithm ALGORITHM] [--new_template] [--exclude_folders EXCLUDE_FOLDERS] [--entity_type {assets,folders,both}]
+    a_get_metadata.py [-h] --preservica-folder-ref --metadata-csv METADATA_CSV [--algorithm ALGORITHM] [--new-template] [--exclude-folders EXCLUDE_FOLDERS] [--entity-type {assets,folders,both}]
 
 Options:
-    --preservica_folder_ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder
-    --metadata_csv METADATA_CSV  Output CSV filename for metadata and checksums
+    --preservica-folder-ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder
+    --metadata-csv METADATA_CSV  Output CSV filename for metadata and checksums
     --algorithm ALGORITHM        The checksum algorithm to use (choices: MD5, SHA1, SHA256, ALL) [default: ALL]
-    --new_template               Flag to use new template with extended Dublin Core elements
-    --exclude_folders            List of folder references to exclude from processing. These folders and their children will be skipped.
-    --entity_type                Type of entities to include in output (choices: assets, folders, both) [default: both]
+    --new-template               Flag to use new template with extended Dublin Core elements
+    --exclude-folders            List of folder references to exclude from processing. These folders and their children will be skipped.
+    --entity-type                Type of entities to include in output (choices: assets, folders, both) [default: both]
 
 Output CSV Columns:
     ALL algorithm mode:
@@ -101,19 +101,27 @@ def initialize_client(username, password, tenant, server):
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Export metadata and checksums to CSV from Preservica.')
-    parser.add_argument('--preservica_folder_ref', required=True,
+    parser.add_argument('--preservica-folder-ref', required=True,
                         help='Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder')
-    parser.add_argument('--metadata_csv', required=True,
+    parser.add_argument('--metadata-csv', required=True,
                         help='Output CSV filename for metadata and checksums')
     parser.add_argument('--algorithm', default='ALL', choices=['MD5', 'SHA1', 'SHA256', 'ALL'],
                         help='The checksum algorithm to use (choices: MD5, SHA1, SHA256, ALL) [default: ALL]')
-    parser.add_argument('--new_template', action='store_true',
+    parser.add_argument('--new-template', action='store_true',
                         help='Flag to use new template with extended Dublin Core elements')
-    parser.add_argument('--exclude_folders', nargs='+',
+    parser.add_argument('--exclude-folders', nargs='+',
                         help='List of folder references to exclude from processing. These folders and their children will be skipped.')
-    parser.add_argument('--entity_type', default='both', choices=['assets', 'folders', 'both'],
+    parser.add_argument('--entity-type', default='both', choices=['assets', 'folders', 'both'],
                         help='Type of entities to include in output (choices: assets, folders, both) [default: both]')
     args = parser.parse_args()
+    
+    # Create backward-compatible attribute names for existing code
+    args.preservica_folder_ref = getattr(args, 'preservica_folder_ref', None)
+    args.metadata_csv = getattr(args, 'metadata_csv', None)
+    args.exclude_folders = getattr(args, 'exclude_folders', None)
+    args.entity_type = getattr(args, 'entity_type', None)
+    args.new_template = getattr(args, 'new_template', None)
+    
     if args.preservica_folder_ref == 'root':
         args.preservica_folder_ref = None
     return args

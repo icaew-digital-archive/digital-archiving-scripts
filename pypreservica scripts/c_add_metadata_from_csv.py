@@ -30,11 +30,14 @@ SERVER = os.getenv('SERVER')
 # Define command-line arguments
 parser = argparse.ArgumentParser(
     description='Add metadata to Preservica assets and folders using a CSV file.')
-parser.add_argument('--csv_file', required=True,
+parser.add_argument('--csv-file', required=True,
                     help='Path to the CSV input file')
 
 # Parse command-line arguments
 args = parser.parse_args()
+
+# Create backward-compatible attribute names for existing code
+args.csv_file = getattr(args, 'csv_file', None)
 
 OAI_DC = 'http://www.openarchives.org/OAI/2.0/oai_dc/'
 DC = 'http://purl.org/dc/elements/1.1/'

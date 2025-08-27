@@ -187,9 +187,13 @@ def main():
     parser = argparse.ArgumentParser(description='Delete metadata from Preservica assets/folders via CSV or folder reference.')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--csv-file', help='Path to CSV file containing assetId and entity.entity_type columns')
-    group.add_argument('--preservica_folder_ref', help='Preservica folder reference (delete all descendants)')
+    group.add_argument('--preservica-folder-ref', help='Preservica folder reference (delete all descendants)')
     parser.add_argument('--log-dir', help='Directory to store log files (default: current directory)')
     args = parser.parse_args()
+    
+    # Create backward-compatible attribute names for existing code
+    args.preservica_folder_ref = getattr(args, 'preservica_folder_ref', None)
+    
     log_file = setup_logging(args.log_dir)
     logging.info(f"Starting metadata deletion process. Log file: {log_file}")
     required_env_vars = ['USERNAME', 'PASSWORD', 'TENANT', 'SERVER']
