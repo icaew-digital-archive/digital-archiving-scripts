@@ -4,9 +4,11 @@ import argparse
 import os
 
 def normalize_asset_id(asset_id):
-    """Normalize asset ID by removing .pdf extension if present"""
-    if asset_id and asset_id.endswith('.pdf'):
-        return asset_id[:-4]  # Remove .pdf extension
+    """Normalize asset ID by removing any file extension if present"""
+    if asset_id and isinstance(asset_id, str):
+        # Remove any file extension (anything after the last dot)
+        if '.' in asset_id:
+            return asset_id.rsplit('.', 1)[0]
     return asset_id
 
 def main():
