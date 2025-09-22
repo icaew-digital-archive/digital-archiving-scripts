@@ -69,13 +69,38 @@ class CSVValidator:
         
 
         
-        # Hardcoded acronyms for ICAEW content
+        # Acronyms and abbreviations (should be in ALL CAPS)
         self.acronyms = {
             'OECD', 'IFRS', 'FRC', 'HMRC', 'UK', 'VAT', 'ICAEW', 'SME', 'SMEs',
             'PAYE', 'RTI', 'NIC', 'CGT', 'IHT', 'KPI', 'KPIs', 'UKEF',
             'AI', 'CBI', 'BBA', 'EEF', 'FLA', 'FSB', 'IOD', 'P2P',
             'BVCA', 'BDO', 'EY', 'KPMG', 'PwC', 'Deloitte', 'NESTA', 'RSA', 'MTD'
         }
+        
+        # Proper nouns (place names, organizations, etc. that should be capitalized)
+        self.proper_nouns = {
+            # UK regions and countries
+            'London', 'North', 'East', 'South', 'West', 'Northern', 'Eastern', 
+            'Southern', 'Western', 'Scotland', 'Wales', 'England', 'Ireland', 
+            'Yorkshire', 'Humberside', 'Midlands', 'Cornwall', 'Devon', 'Kent',
+            'Sussex', 'Essex', 'Norfolk', 'Suffolk', 'Cumbria', 'Lancashire',
+            'Cheshire', 'Shropshire', 'Herefordshire', 'Worcestershire', 'Warwickshire',
+            'Oxfordshire', 'Buckinghamshire', 'Berkshire', 'Hampshire', 'Dorset',
+            'Somerset', 'Wiltshire', 'Gloucestershire',
+            
+            # Major cities and towns
+            'Bristol', 'Bath', 'York', 'Leeds', 'Sheffield', 'Bradford', 'Hull', 
+            'Newcastle', 'Sunderland', 'Middlesbrough', 'Stockton', 'Darlington', 
+            'Hartlepool', 'Redcar', 'Scarborough', 'Harrogate', 'Wakefield', 
+            'Huddersfield', 'Halifax', 'Dewsbury', 'Batley', 'Keighley', 'Shipley', 
+            'Bingley', 'Ilkley', 'Otley', 'Pudsey', 'Morley', 'Rothwell', 'Lofthouse', 
+            'Stanley', 'Castleford', 'Pontefract', 'Knottingley', 'Featherstone', 
+            'Normanton', 'Ossett', 'Horbury', 'Crigglestone', 'Wrenthorpe', 'Liversedge',
+            'Cleckheaton', 'Gomersal', 'Birstall', 'Heckmondwike', 'Mirfield'
+        }
+        
+        # Combined set for quick lookup (acronyms + proper nouns)
+        self.allowed_capitalized = self.acronyms.union(self.proper_nouns)
         
         # Required headers that must be present in the CSV
         self.required_headers = [
@@ -187,7 +212,7 @@ class CSVValidator:
         if not title:
             return issues
             
-        # Check for acronym capitalization
+        # Check for acronym capitalization (acronyms should be ALL CAPS)
         words = title.split()
         for word in words:
             # Remove punctuation for checking
@@ -269,10 +294,10 @@ class CSVValidator:
                 # Check if first letter after colon is capitalized (should not be)
                 for i, part in enumerate(parts[1:], 1):
                     if part.strip() and part.strip()[0].isupper():
-                        # Check if the capitalized word is an acronym
+                        # Check if the capitalized word is an allowed capitalized term
                         first_word = part.strip().split()[0]
                         clean_first_word = re.sub(r'[^\w]', '', first_word)
-                        if clean_first_word.upper() not in self.acronyms:
+                        if clean_first_word not in self.allowed_capitalized:
                             issues.append("First letter after colon should not be capitalized")
                             break
         
@@ -317,8 +342,12 @@ class CSVValidator:
             document_part = '-'.join(parts[1:])
             words = document_part.split('-')
             for word in words:
+                # Check if it's an acronym that should be ALL CAPS
                 if word.upper() in self.acronyms and word != word.upper():
                     issues.append(f"Acronym '{word}' in reference should be in capitals: '{word.upper()}'")
+                # Check if it's a proper noun that should be Title Case
+                elif word.title() in self.proper_nouns and word != word.title():
+                    issues.append(f"Proper noun '{word}' in reference should be title case: '{word.title()}'")
         
         # Validate title case for document name
         if len(parts) >= 2:
@@ -326,8 +355,10 @@ class CSVValidator:
             words = document_part.split('-')
             for word in words:
                 # Skip numeric words (likely date components) and empty words
-                if word and not word.isdigit() and not word[0].isupper():
-                    issues.append(f"icaew:InternalReference document name should use title case: '{word}' should be '{word.title()}'")
+                if word and not word.isdigit():
+                    # Check if it's already correctly formatted (acronym, proper noun, or title case)
+                    if word not in self.allowed_capitalized and not word[0].isupper():
+                        issues.append(f"icaew:InternalReference document name should use title case: '{word}' should be '{word.title()}'")
         
         return issues
 
