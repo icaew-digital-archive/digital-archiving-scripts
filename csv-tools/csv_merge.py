@@ -136,9 +136,13 @@ Examples:
     merged.columns = merged.columns.str.replace(
         '_ai', '').str.replace('_semaphore', '')
     
-    # Rename all dc:subject.X columns to just dc:subject
+    # Rename all columns with appendix numbers to have the same base name
+    # This converts dc:creator.1, dc:creator.2, etc. -> dc:creator
+    # And dc:identifier.1, dc:identifier.2, etc. -> dc:identifier
+    # And dc:contributor.1, dc:contributor.2, etc. -> dc:contributor
+    # And dc:subject.1, dc:subject.2, etc. -> dc:subject
     merged.columns = merged.columns.str.replace(
-        r'dc:subject\.\d+', 'dc:subject', regex=True)
+        r'\.\d+$', '', regex=True)
     
     # --- Save final result ---
     try:
