@@ -32,6 +32,9 @@ def main():
     parser.add_argument('--to_file', help='file path to .txt file output')
     # Optional save to .html file
     parser.add_argument('--to_html', help='file path to .html file output')
+    # Optional deduplicate URLs
+    parser.add_argument('--deduplicate', action='store_true',
+                        help='remove duplicate URLs from output')
     args = parser.parse_args()
 
     # Get URLs into list
@@ -42,6 +45,9 @@ def main():
 
     if args.exclude_strings:
         sitemap_urls = filter_exclude_str(sitemap_urls, args.exclude_strings)
+
+    if args.deduplicate:
+        sitemap_urls = deduplicate_urls(sitemap_urls)
 
     if args.to_file or args.to_html:
         if args.to_file:
@@ -113,6 +119,12 @@ def filter_exclude_str(sitemap_urls, exclude_string):
         if not any(map(url.__contains__, exclude_string)):
             filtered.append(url)
     return filtered
+
+
+def deduplicate_urls(sitemap_urls):
+    """Remove duplicate URLs while preserving order"""
+    # Use dict.fromkeys() to preserve order while removing duplicates
+    return list(dict.fromkeys(sitemap_urls))
 
 
 def to_file(sitemap_urls, filename):
