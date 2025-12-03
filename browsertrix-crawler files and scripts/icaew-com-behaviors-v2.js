@@ -41,6 +41,34 @@ class ICAEWBehaviors {
     // Trigger the function
     clickCookieConsentButton();
 
+    // Function to click banner cookie element
+    function clickBannerCookie() {
+      const element = document.querySelector("#banner-cookie > span");
+
+      if (element) {
+        element.click();
+      } else {
+        console.log(`Element with selector '#banner-cookie > span' not found`);
+      }
+    }
+
+    // Trigger the function
+    clickBannerCookie();
+
+    // Function to click survey toggle element
+    function clickSurveyToggle() {
+      const element = document.getElementById("hj-survey-toggle-1");
+
+      if (element) {
+        element.click();
+      } else {
+        console.log(`Element with ID 'hj-survey-toggle-1' not found`);
+      }
+    }
+
+    // Trigger the function
+    clickSurveyToggle();
+
     // Function to click buttons within a dynamic filter with a delay
     function clickButtonsInFilter(selector, delay = 500) {
       const parentElement = document.querySelector(selector);
