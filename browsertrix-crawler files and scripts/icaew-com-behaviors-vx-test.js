@@ -87,14 +87,28 @@ class ICAEWBehaviors {
 
     // Click pagination elements - click all pagination links (Previous, page numbers, Next)
     // Track clicked URLs to avoid duplicates
-    const paginationSelector = "div.c-navigation-pagination > nav > a";
+    // Use multiple selectors to catch all pagination links
+    const paginationSelectors = [
+      "div.c-navigation-pagination > nav > a",
+      "div.c-navigation-pagination nav a",
+      "nav > a.page.next",
+      "nav > a.page.prev",
+      "nav > a.page"
+    ];
     const clickedUrls = new Set();
     const clickedTexts = new Set(); // Also track by text for page numbers
     let maxIterations = 100;
     let iteration = 0;
 
     while (iteration < maxIterations) {
-      const elements = document.querySelectorAll(paginationSelector);
+      // Collect all pagination elements from all selectors
+      let allElements = [];
+      for (const selector of paginationSelectors) {
+        const found = document.querySelectorAll(selector);
+        allElements.push(...Array.from(found));
+      }
+      // Remove duplicates (same element might match multiple selectors)
+      const elements = Array.from(new Set(allElements));
 
       if (elements.length === 0) {
         ctx.log(`No pagination elements found (iteration ${iteration + 1})`);
