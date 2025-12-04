@@ -85,10 +85,12 @@ class ICAEWBehaviors {
       ctx.log(`Filter parent element not found: ${filterSelector}`);
     }
 
-    // Click pagination elements - track clicked URLs to avoid duplicates
-    const paginationSelector = "div.c-navigation-pagination > nav > a.page.next";
+    // Click pagination elements - click all pagination links (Previous, page numbers, Next)
+    // Track clicked URLs to avoid duplicates
+    const paginationSelector = "div.c-navigation-pagination > nav > a";
     const clickedUrls = new Set();
-    let maxIterations = 50;
+    const clickedTexts = new Set(); // Also track by text for page numbers
+    let maxIterations = 100;
     let iteration = 0;
 
     while (iteration < maxIterations) {
@@ -101,18 +103,25 @@ class ICAEWBehaviors {
 
       let clickedAny = false;
       for (let i = 0; i < elements.length; i++) {
-        const href = elements[i].href || elements[i].getAttribute('href');
-        // Skip if we've already clicked this URL
-        if (href && clickedUrls.has(href)) {
+        const element = elements[i];
+        const href = element.href || element.getAttribute('href');
+        const text = element.textContent?.trim();
+        
+        // Skip if we've already clicked this URL or this text (for page numbers)
+        if ((href && clickedUrls.has(href)) || (text && clickedTexts.has(text))) {
           continue;
         }
 
-        if (isInViewport(elements[i]) || elements[i].offsetParent !== null) {
-          await scrollAndClick(elements[i]);
+        // Check if element is visible and clickable
+        const style = getComputedStyle(element);
+        if (style.display !== "none" && style.visibility !== "hidden" && 
+            (isInViewport(element) || element.offsetParent !== null)) {
+          await scrollAndClick(element);
           if (href) clickedUrls.add(href);
+          if (text) clickedTexts.add(text);
           clickedAny = true;
-          yield ctx.Lib.getState(ctx, `Clicked pagination ${i + 1}/${elements.length} (iteration ${iteration + 1})`);
-          await sleep(500);
+          yield ctx.Lib.getState(ctx, `Clicked pagination "${text || href}" (${i + 1}/${elements.length}, iteration ${iteration + 1})`);
+          await sleep(800);
         }
       }
 
@@ -122,7 +131,7 @@ class ICAEWBehaviors {
       }
 
       // Wait for new content to load
-      await sleep(1500);
+      await sleep(2000);
       iteration++;
     }
 
@@ -149,51 +158,6 @@ class ICAEWBehaviors {
         ctx.log("More-link element not found");
         break;
       }
-    }
-
-    // Click all Highcharts chart menu buttons - track clicked buttons to avoid duplicates
-    const highchartsSelector = "div.highcharts-a11y-proxy-container-after > div.highcharts-a11y-proxy-group.highcharts-a11y-proxy-group-chartMenu > button";
-    const clickedHighchartsButtons = new Set();
-    let highchartsIterations = 0;
-    const maxHighchartsIterations = 20;
-
-    while (highchartsIterations < maxHighchartsIterations) {
-      const buttons = document.querySelectorAll(highchartsSelector);
-
-      if (buttons.length === 0) {
-        ctx.log(`No Highcharts buttons found (iteration ${highchartsIterations + 1})`);
-        break;
-      }
-
-      let clickedAny = false;
-      for (let i = 0; i < buttons.length; i++) {
-        // Create unique identifier for button (position-based)
-        const rect = buttons[i].getBoundingClientRect();
-        const buttonId = `${rect.top}-${rect.left}-${rect.width}-${rect.height}`;
-
-        // Skip if already clicked
-        if (clickedHighchartsButtons.has(buttonId)) {
-          continue;
-        }
-
-        const style = getComputedStyle(buttons[i]);
-        if (style.display !== "none" && style.visibility !== "hidden" && !buttons[i].disabled) {
-          await scrollAndClick(buttons[i]);
-          clickedHighchartsButtons.add(buttonId);
-          clickedAny = true;
-          yield ctx.Lib.getState(ctx, `Clicked Highcharts button ${i + 1}/${buttons.length} (iteration ${highchartsIterations + 1})`);
-          await sleep(400);
-        }
-      }
-
-      if (!clickedAny) {
-        ctx.log("No new Highcharts buttons to click");
-        break;
-      }
-
-      // Wait for new buttons to potentially appear
-      await sleep(1200);
-      highchartsIterations++;
     }
 
     yield ctx.Lib.getState(ctx, "icaew-stat");
