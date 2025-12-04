@@ -17,105 +17,116 @@ class ICAEWBehaviors {
   async *run(ctx) {
     ctx.log("Running ICAEW Behaviors");
 
-    // Change navbar to pink - FOR TESTING
-    // Select all elements matching the specified selector
-    //    var navLinks = document.querySelectorAll('#u-nav .u-nav--links > li > a');
+    const { sleep, waitUntilNode, scrollAndClick, isInViewport } = ctx.Lib;
 
-    // Iterate over each element and set its color to pink
-    //    navLinks.forEach(function(link) {
-    //        link.style.color = 'pink';
-    //    });
-
-    // Function to click a cookie consent button
-    function clickCookieConsentButton() {
-      const buttonId = "CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll";
-      const element = document.getElementById(buttonId);
-
-      if (element) {
-        element.click();
-      } else {
-        console.log(`Element with ID '${buttonId}' not found`);
-      }
-    }
-
-    // Trigger the function
-    clickCookieConsentButton();
-
-    // Function to click banner cookie element
-    function clickBannerCookie() {
-      const element = document.querySelector("#banner-cookie > span");
-
-      if (element) {
-        element.click();
-      } else {
-        console.log(`Element with selector '#banner-cookie > span' not found`);
-      }
-    }
-
-    // Trigger the function
-    clickBannerCookie();
-
-    // Function to click survey toggle element
-    function clickSurveyToggle() {
-      const element = document.getElementById("hj-survey-toggle-1");
-
-      if (element) {
-        element.click();
-      } else {
-        console.log(`Element with ID 'hj-survey-toggle-1' not found`);
-      }
-    }
-
-    // Trigger the function
-    clickSurveyToggle();
-
-    // Function to click buttons within a dynamic filter with a delay
-    const { sleep } = ctx.Lib;
-    const filterSelector = "div.c-filter.c-filter--dynamic > div.c-filter__filters";
-    const parentElement = document.querySelector(filterSelector);
-
-    if (parentElement) {
-      const buttons = parentElement.querySelectorAll("button");
-      for (let i = 0; i < buttons.length; i++) {
-        buttons[i].click();
-        yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
+    // Click cookie consent button - wait for it to appear
+    try {
+      const cookieButton = await waitUntilNode(
+        () => document.getElementById("CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll"),
+        5000
+      );
+      if (cookieButton) {
+        await scrollAndClick(cookieButton);
+        yield ctx.Lib.getState(ctx, "Clicked cookie consent button");
         await sleep(500);
       }
-    } else {
-      ctx.log(`Parent element with selector '${filterSelector}' not found`);
+    } catch (e) {
+      ctx.log("Cookie consent button not found or timeout");
     }
 
-    // Function to click all matching elements with a delay (pagination)
+    // Click banner cookie element - wait for it to appear
+    try {
+      const bannerCookie = await waitUntilNode(
+        () => document.querySelector("#banner-cookie > span"),
+        3000
+      );
+      if (bannerCookie) {
+        await scrollAndClick(bannerCookie);
+        yield ctx.Lib.getState(ctx, "Clicked banner cookie");
+        await sleep(500);
+      }
+    } catch (e) {
+      ctx.log("Banner cookie element not found or timeout");
+    }
+
+    // Click survey toggle element - wait for it to appear
+    try {
+      const surveyToggle = await waitUntilNode(
+        () => document.getElementById("hj-survey-toggle-1"),
+        3000
+      );
+      if (surveyToggle) {
+        await scrollAndClick(surveyToggle);
+        yield ctx.Lib.getState(ctx, "Clicked survey toggle");
+        await sleep(500);
+      }
+    } catch (e) {
+      ctx.log("Survey toggle element not found or timeout");
+    }
+
+    // Click buttons within a dynamic filter
+    const filterSelector = "div.c-filter.c-filter--dynamic > div.c-filter__filters";
+    try {
+      const parentElement = await waitUntilNode(
+        () => document.querySelector(filterSelector),
+        5000
+      );
+      if (parentElement) {
+        const buttons = parentElement.querySelectorAll("button");
+        for (let i = 0; i < buttons.length; i++) {
+          if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
+            await scrollAndClick(buttons[i]);
+            yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
+            await sleep(500);
+          }
+        }
+      }
+    } catch (e) {
+      ctx.log(`Filter parent element not found: ${filterSelector}`);
+    }
+
+    // Click pagination elements - track clicked URLs to avoid duplicates
     const paginationSelector = "div.c-navigation-pagination > nav > a.page.next";
-    let maxIterations = 50; // Prevent infinite loops
+    const clickedUrls = new Set();
+    let maxIterations = 50;
     let iteration = 0;
 
     while (iteration < maxIterations) {
       const elements = document.querySelectorAll(paginationSelector);
 
       if (elements.length === 0) {
-        ctx.log(`No pagination elements found with selector '${paginationSelector}'`);
+        ctx.log(`No pagination elements found (iteration ${iteration + 1})`);
         break;
       }
 
       let clickedAny = false;
       for (let i = 0; i < elements.length; i++) {
-        elements[i].click();
-        clickedAny = true;
-        yield ctx.Lib.getState(ctx, `Clicked pagination element ${i + 1}/${elements.length} (iteration ${iteration + 1})`);
-        await sleep(500);
+        const href = elements[i].href || elements[i].getAttribute('href');
+        // Skip if we've already clicked this URL
+        if (href && clickedUrls.has(href)) {
+          continue;
+        }
+
+        if (isInViewport(elements[i]) || elements[i].offsetParent !== null) {
+          await scrollAndClick(elements[i]);
+          if (href) clickedUrls.add(href);
+          clickedAny = true;
+          yield ctx.Lib.getState(ctx, `Clicked pagination ${i + 1}/${elements.length} (iteration ${iteration + 1})`);
+          await sleep(500);
+        }
       }
 
       if (!clickedAny) {
+        ctx.log("No new pagination elements to click");
         break;
       }
 
-      // Wait a bit for new content to load
-      await sleep(1000);
+      // Wait for new content to load
+      await sleep(1500);
       iteration++;
     }
 
-    // Function to click an element repeatedly until it is hidden
+    // Click "more-link" element repeatedly until it is hidden
     const moreLinkSelector = "div.more-link > a";
     let moreLinkIterations = 0;
     const maxMoreLinkIterations = 100;
@@ -123,19 +134,26 @@ class ICAEWBehaviors {
     while (moreLinkIterations < maxMoreLinkIterations) {
       const element = document.querySelector(moreLinkSelector);
 
-      if (element && getComputedStyle(element).display !== "none") {
-        element.click();
-        yield ctx.Lib.getState(ctx, `Clicked more-link (iteration ${moreLinkIterations + 1})`);
-        await sleep(500);
-        moreLinkIterations++;
+      if (element) {
+        const style = getComputedStyle(element);
+        if (style.display !== "none" && style.visibility !== "hidden") {
+          await scrollAndClick(element);
+          yield ctx.Lib.getState(ctx, `Clicked more-link (iteration ${moreLinkIterations + 1})`);
+          await sleep(800); // Longer wait for content to expand
+          moreLinkIterations++;
+        } else {
+          ctx.log("More-link element is hidden");
+          break;
+        }
       } else {
-        ctx.log(`Element with selector '${moreLinkSelector}' not found or hidden`);
+        ctx.log("More-link element not found");
         break;
       }
     }
 
-    // Function to click all Highcharts chart menu buttons
+    // Click all Highcharts chart menu buttons - track clicked buttons to avoid duplicates
     const highchartsSelector = "div.highcharts-a11y-proxy-container-after > div.highcharts-a11y-proxy-group.highcharts-a11y-proxy-group-chartMenu > button";
+    const clickedHighchartsButtons = new Set();
     let highchartsIterations = 0;
     const maxHighchartsIterations = 20;
 
@@ -143,27 +161,38 @@ class ICAEWBehaviors {
       const buttons = document.querySelectorAll(highchartsSelector);
 
       if (buttons.length === 0) {
-        ctx.log(`No Highcharts buttons found with selector '${highchartsSelector}'`);
+        ctx.log(`No Highcharts buttons found (iteration ${highchartsIterations + 1})`);
         break;
       }
 
       let clickedAny = false;
       for (let i = 0; i < buttons.length; i++) {
-        const style = window.getComputedStyle(buttons[i]);
+        // Create unique identifier for button (position-based)
+        const rect = buttons[i].getBoundingClientRect();
+        const buttonId = `${rect.top}-${rect.left}-${rect.width}-${rect.height}`;
+
+        // Skip if already clicked
+        if (clickedHighchartsButtons.has(buttonId)) {
+          continue;
+        }
+
+        const style = getComputedStyle(buttons[i]);
         if (style.display !== "none" && style.visibility !== "hidden" && !buttons[i].disabled) {
-          buttons[i].click();
+          await scrollAndClick(buttons[i]);
+          clickedHighchartsButtons.add(buttonId);
           clickedAny = true;
           yield ctx.Lib.getState(ctx, `Clicked Highcharts button ${i + 1}/${buttons.length} (iteration ${highchartsIterations + 1})`);
-          await sleep(300);
+          await sleep(400);
         }
       }
 
       if (!clickedAny) {
+        ctx.log("No new Highcharts buttons to click");
         break;
       }
 
-      // Wait a bit for new buttons to potentially appear
-      await sleep(1000);
+      // Wait for new buttons to potentially appear
+      await sleep(1200);
       highchartsIterations++;
     }
 
