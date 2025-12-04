@@ -151,51 +151,6 @@ class ICAEWBehaviors {
       }
     }
 
-    // Click all Highcharts chart menu buttons - track clicked buttons to avoid duplicates
-    const highchartsSelector = "div.highcharts-a11y-proxy-container-after > div.highcharts-a11y-proxy-group.highcharts-a11y-proxy-group-chartMenu > button";
-    const clickedHighchartsButtons = new Set();
-    let highchartsIterations = 0;
-    const maxHighchartsIterations = 20;
-
-    while (highchartsIterations < maxHighchartsIterations) {
-      const buttons = document.querySelectorAll(highchartsSelector);
-
-      if (buttons.length === 0) {
-        ctx.log(`No Highcharts buttons found (iteration ${highchartsIterations + 1})`);
-        break;
-      }
-
-      let clickedAny = false;
-      for (let i = 0; i < buttons.length; i++) {
-        // Create unique identifier for button (position-based)
-        const rect = buttons[i].getBoundingClientRect();
-        const buttonId = `${rect.top}-${rect.left}-${rect.width}-${rect.height}`;
-
-        // Skip if already clicked
-        if (clickedHighchartsButtons.has(buttonId)) {
-          continue;
-        }
-
-        const style = getComputedStyle(buttons[i]);
-        if (style.display !== "none" && style.visibility !== "hidden" && !buttons[i].disabled) {
-          await scrollAndClick(buttons[i]);
-          clickedHighchartsButtons.add(buttonId);
-          clickedAny = true;
-          yield ctx.Lib.getState(ctx, `Clicked Highcharts button ${i + 1}/${buttons.length} (iteration ${highchartsIterations + 1})`);
-          await sleep(400);
-        }
-      }
-
-      if (!clickedAny) {
-        ctx.log("No new Highcharts buttons to click");
-        break;
-      }
-
-      // Wait for new buttons to potentially appear
-      await sleep(1200);
-      highchartsIterations++;
-    }
-
     yield ctx.Lib.getState(ctx, "icaew-stat");
   }
 }
