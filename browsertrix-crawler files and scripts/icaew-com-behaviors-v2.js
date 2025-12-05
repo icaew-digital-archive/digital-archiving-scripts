@@ -65,64 +65,129 @@ class ICAEWBehaviors {
     }
 
     // Click buttons within a dynamic filter
-    const filterSelector = "div.c-filter.c-filter--dynamic > div.c-filter__filters";
+    // Try multiple selectors to handle different class naming conventions
+    // Order: try the most specific (with --dynamic and single underscore) first
+    const filterSelectors = [
+      "div.c-filter.c-filter--dynamic > div.c-filter_filters",
+      "div.c-filter.c-filter--dynamic > div.c-filter__filters",
+      "div.c-filter > div.c-filter_filters",
+      "div.c-filter > div.c-filter__filters"
+    ];
     try {
-      const parentElement = await waitUntilNode(
-        () => document.querySelector(filterSelector),
-        5000
-      );
-      if (parentElement) {
-        const buttons = parentElement.querySelectorAll("button");
-        for (let i = 0; i < buttons.length; i++) {
-          if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
-            await scrollAndClick(buttons[i]);
-            yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
-            await sleep(500);
+      let parentElement = null;
+      let usedSelector = null;
+      
+      // Try each selector until one works, handling timeouts gracefully
+      for (const selector of filterSelectors) {
+        try {
+          parentElement = await waitUntilNode(
+            () => document.querySelector(selector),
+            5000
+          );
+          if (parentElement) {
+            usedSelector = selector;
+            break;
           }
+        } catch (e) {
+          // Timeout or error for this selector, try next one
+          ctx.log(`Selector failed: ${selector} - ${e.message}`);
+          continue;
         }
       }
+      
+      if (parentElement) {
+        ctx.log(`Found filter using selector: ${usedSelector}`);
+        // Wait a bit for buttons to be fully rendered
+        await sleep(500);
+        const buttons = parentElement.querySelectorAll("button");
+        ctx.log(`Found ${buttons.length} filter button(s)`);
+        if (buttons.length === 0) {
+          ctx.log("No buttons found in filter element");
+        } else {
+          for (let i = 0; i < buttons.length; i++) {
+            if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
+              await scrollAndClick(buttons[i]);
+              yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
+              await sleep(1000);
+            }
+          }
+        }
+      } else {
+        ctx.log(`Filter parent element not found with any selector`);
+        ctx.log(`Tried selectors: ${filterSelectors.join(", ")}`);
+      }
     } catch (e) {
-      ctx.log(`Filter parent element not found: ${filterSelector}`);
+      ctx.log(`Error finding filter element: ${e.message}`);
     }
 
-    // Click pagination elements - track clicked URLs to avoid duplicates
-    const paginationSelector = "div.c-navigation-pagination > nav > a.page.next";
-    const clickedUrls = new Set();
-    let maxIterations = 50;
+    // Click pagination "Next" buttons repeatedly to go through all pages
+    // Use multiple selectors to find "Next" buttons
+    const nextButtonSelectors = [
+      "div.c-navigation-pagination > nav > a.page.next",
+      "div.c-navigation-pagination nav a.page.next",
+      "nav > a.page.next"
+    ];
+    let maxIterations = 200;
     let iteration = 0;
 
     while (iteration < maxIterations) {
-      const elements = document.querySelectorAll(paginationSelector);
+      // Find all "Next" buttons using multiple selectors
+      let nextButtons = [];
+      for (const selector of nextButtonSelectors) {
+        const found = document.querySelectorAll(selector);
+        nextButtons.push(...Array.from(found));
+      }
+      // Remove duplicates
+      const uniqueNextButtons = Array.from(new Set(nextButtons));
 
-      if (elements.length === 0) {
-        ctx.log(`No pagination elements found (iteration ${iteration + 1})`);
+      if (uniqueNextButtons.length === 0) {
+        ctx.log(`No "Next" buttons found (iteration ${iteration + 1})`);
         break;
       }
 
       let clickedAny = false;
-      for (let i = 0; i < elements.length; i++) {
-        const href = elements[i].href || elements[i].getAttribute('href');
-        // Skip if we've already clicked this URL
-        if (href && clickedUrls.has(href)) {
+      let allDisabled = true;
+      
+      // Click all "Next" buttons found (in case there are multiple pagination sections)
+      for (let i = 0; i < uniqueNextButtons.length; i++) {
+        const nextButton = uniqueNextButtons[i];
+        const style = getComputedStyle(nextButton);
+        
+        // Check if button is disabled
+        const isDisabled = nextButton.classList.contains('disabled') || 
+                          nextButton.hasAttribute('disabled') ||
+                          nextButton.getAttribute('aria-disabled') === 'true';
+        
+        if (isDisabled) {
+          ctx.log(`"Next" button ${i + 1} is disabled, skipping`);
           continue;
         }
-
-        if (isInViewport(elements[i]) || elements[i].offsetParent !== null) {
-          await scrollAndClick(elements[i]);
-          if (href) clickedUrls.add(href);
+        
+        allDisabled = false;
+        
+        // Check if button is visible and clickable
+        if (style.display !== "none" && style.visibility !== "hidden" && 
+            (isInViewport(nextButton) || nextButton.offsetParent !== null)) {
+          await scrollAndClick(nextButton);
           clickedAny = true;
-          yield ctx.Lib.getState(ctx, `Clicked pagination ${i + 1}/${elements.length} (iteration ${iteration + 1})`);
-          await sleep(500);
+          yield ctx.Lib.getState(ctx, `Clicked "Next" button (${i + 1}/${uniqueNextButtons.length}, iteration ${iteration + 1})`);
+          // Wait 1 second for content to load
+          await sleep(1000);
+          // Wait 1 second before clicking next
+          await sleep(1000);
         }
       }
 
-      if (!clickedAny) {
-        ctx.log("No new pagination elements to click");
+      // Stop if all buttons are disabled
+      if (allDisabled) {
+        ctx.log("All 'Next' buttons are disabled. Stopping.");
         break;
       }
 
-      // Wait for new content to load
-      await sleep(1500);
+      if (!clickedAny) {
+        ctx.log("No clickable 'Next' buttons found");
+        break;
+      }
       iteration++;
     }
 
