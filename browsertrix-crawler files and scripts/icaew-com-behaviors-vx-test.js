@@ -1,6 +1,13 @@
 class ICAEWBehaviors {
-  // Required: unique identifier for this behavior
-  static id = "ICAEWBehaviors";
+  static init() {
+    return {
+      state: {},
+    };
+  }
+
+  static get id() {
+    return "ICAEWBehaviors";
+  }
 
   static isMatch() {
     const pathRegex = /^(https?:\/\/)?([\w-]+\.)*icaew\.com(\/.*)?$/;
@@ -98,11 +105,7 @@ class ICAEWBehaviors {
           ctx.log("No buttons found in filter element");
         } else {
           for (let i = 0; i < buttons.length; i++) {
-            const style = getComputedStyle(buttons[i]);
-            const isVisible = style.display !== "none" && style.visibility !== "hidden";
-            // offsetParent check ensures element is part of the DOM and not hidden
-            // scrollAndClick will handle scrolling into view
-            if (isVisible && buttons[i].offsetParent !== null) {
+            if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
               await scrollAndClick(buttons[i]);
               yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
               await sleep(1000);
