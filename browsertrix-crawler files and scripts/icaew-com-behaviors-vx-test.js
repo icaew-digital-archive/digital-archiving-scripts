@@ -77,7 +77,7 @@ class ICAEWBehaviors {
           if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
             await scrollAndClick(buttons[i]);
             yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
-            await sleep(500);
+            await sleep(1000);
           }
         }
       }
