@@ -65,24 +65,59 @@ class ICAEWBehaviors {
     }
 
     // Click buttons within a dynamic filter
-    const filterSelector = "div.c-filter.c-filter--dynamic > div.c-filter__filters";
+    // Try multiple selectors to handle different class naming conventions
+    // Order: try the most specific (with --dynamic and single underscore) first
+    const filterSelectors = [
+      "div.c-filter.c-filter--dynamic > div.c-filter_filters",
+      "div.c-filter.c-filter--dynamic > div.c-filter__filters",
+      "div.c-filter > div.c-filter_filters",
+      "div.c-filter > div.c-filter__filters"
+    ];
     try {
-      const parentElement = await waitUntilNode(
-        () => document.querySelector(filterSelector),
-        5000
-      );
-      if (parentElement) {
-        const buttons = parentElement.querySelectorAll("button");
-        for (let i = 0; i < buttons.length; i++) {
-          if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
-            await scrollAndClick(buttons[i]);
-            yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
-            await sleep(1000);
+      let parentElement = null;
+      let usedSelector = null;
+      
+      // Try each selector until one works, handling timeouts gracefully
+      for (const selector of filterSelectors) {
+        try {
+          parentElement = await waitUntilNode(
+            () => document.querySelector(selector),
+            5000
+          );
+          if (parentElement) {
+            usedSelector = selector;
+            break;
           }
+        } catch (e) {
+          // Timeout or error for this selector, try next one
+          ctx.log(`Selector failed: ${selector} - ${e.message}`);
+          continue;
         }
       }
+      
+      if (parentElement) {
+        ctx.log(`Found filter using selector: ${usedSelector}`);
+        // Wait a bit for buttons to be fully rendered
+        await sleep(500);
+        const buttons = parentElement.querySelectorAll("button");
+        ctx.log(`Found ${buttons.length} filter button(s)`);
+        if (buttons.length === 0) {
+          ctx.log("No buttons found in filter element");
+        } else {
+          for (let i = 0; i < buttons.length; i++) {
+            if (isInViewport(buttons[i]) || buttons[i].offsetParent !== null) {
+              await scrollAndClick(buttons[i]);
+              yield ctx.Lib.getState(ctx, `Clicked filter button ${i + 1}/${buttons.length}`);
+              await sleep(1000);
+            }
+          }
+        }
+      } else {
+        ctx.log(`Filter parent element not found with any selector`);
+        ctx.log(`Tried selectors: ${filterSelectors.join(", ")}`);
+      }
     } catch (e) {
-      ctx.log(`Filter parent element not found: ${filterSelector}`);
+      ctx.log(`Error finding filter element: ${e.message}`);
     }
 
     // Click pagination "Next" buttons repeatedly to go through all pages
