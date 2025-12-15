@@ -14,6 +14,7 @@ All downloads verify fixity values to ensure file integrity.
 
 CLI Options:
     --original-only : Download only the original (first generation) files from each asset's Preservation representation. Skips derivatives and access copies (e.g., PDFs, ODTs, thumbnails).
+    --exclude-extensions : Exclude files with specified extensions from download (e.g., --exclude-extensions mp4 avi mov).
 
 Examples:
     # Download from a single folder
@@ -36,6 +37,9 @@ Examples:
 
     # Download only original (first generation) files from Preservation representation
     python download_preservica_assets.py --folder "folder-id" --original-only ./downloads
+
+    # Exclude specific file types (e.g., video files)
+    python download_preservica_assets.py --folder "folder-id" --exclude-extensions mp4 avi mov ./downloads
 """
 
 import argparse
@@ -113,9 +117,13 @@ def get_download_path(download_folder, bitstream, asset_ref, use_asset_ref):
         return Path(download_folder) / bitstream.filename
 
 
-def download_asset(client, asset_ref, download_folder, use_asset_ref=False, original_only=False):
+def download_asset(client, asset_ref, download_folder, use_asset_ref=False, original_only=False, exclude_extensions=None):
     """Download a single asset and return True if successful, False if there were errors."""
     error_count = 0
+    # Normalize exclude_extensions to lowercase for case-insensitive comparison
+    if exclude_extensions:
+        exclude_extensions = [ext.lower().lstrip('.') for ext in exclude_extensions]
+    
     try:
         asset = client.asset(asset_ref)
         for representation in client.representations(asset):
@@ -138,6 +146,13 @@ def download_asset(client, asset_ref, download_folder, use_asset_ref=False, orig
                     logging.info(f"Downloading only original generation for asset {asset_ref} in Preservation representation")
                 for generation in generations:
                     for bitstream in generation.bitstreams:
+                        # Check if file extension should be excluded
+                        if exclude_extensions:
+                            file_ext = Path(bitstream.filename).suffix.lstrip('.').lower()
+                            if file_ext in exclude_extensions:
+                                logging.info(f"Skipping {bitstream.filename} (excluded extension: .{file_ext})")
+                                continue
+                        
                         for algorithm, value in bitstream.fixity.items():
                             algorithm = algorithm.lower()
                             value = value.lower()
@@ -179,7 +194,7 @@ def read_id_list(file_path):
         raise
 
 
-def process_folder(client, folder_ref, download_folder, use_asset_ref=False, original_only=False):
+def process_folder(client, folder_ref, download_folder, use_asset_ref=False, original_only=False, exclude_extensions=None):
     """Process a single folder and return True if successful, False if there were errors."""
     error_count = 0
     try:
@@ -188,7 +203,7 @@ def process_folder(client, folder_ref, download_folder, use_asset_ref=False, ori
             folder_ref = None
 
         for asset in filter(only_assets, client.all_descendants(folder_ref)):
-            if not download_asset(client, asset.reference, download_folder, use_asset_ref, original_only):
+            if not download_asset(client, asset.reference, download_folder, use_asset_ref, original_only, exclude_extensions):
                 error_count += 1
         return error_count == 0
     except Exception as e:
@@ -237,6 +252,8 @@ def main(args):
         logging.info("Using asset reference numbers in filenames")
     if hasattr(args, 'original_only') and args.original_only:
         logging.info("Downloading only original (first generation) files")
+    if hasattr(args, 'exclude_extensions') and args.exclude_extensions:
+        logging.info(f"Excluding file extensions: {', '.join(args.exclude_extensions)}")
 
     # Create download directory if it doesn't exist
     download_path = Path(args.download_folder)
@@ -256,14 +273,17 @@ def main(args):
 
     error_count = 0
     start_time = datetime.now()
+    
+    # Get exclude_extensions from args, default to None
+    exclude_extensions = getattr(args, 'exclude_extensions', None)
 
     try:
         if args.folder:
-            if not process_folder(client, args.folder, download_path, args.use_asset_ref, args.original_only):
+            if not process_folder(client, args.folder, download_path, args.use_asset_ref, args.original_only, exclude_extensions):
                 error_count += 1
 
         elif args.asset:
-            if not download_asset(client, args.asset, download_path, args.use_asset_ref, args.original_only):
+            if not download_asset(client, args.asset, download_path, args.use_asset_ref, args.original_only, exclude_extensions):
                 error_count += 1
 
         elif args.assets_file:
@@ -275,7 +295,7 @@ def main(args):
             for i, asset_id in enumerate(asset_ids, 1):
                 logging.info(
                     f"Processing asset {i}/{total_assets}: {asset_id}")
-                if download_asset(client, asset_id, download_path, args.use_asset_ref, args.original_only):
+                if download_asset(client, asset_id, download_path, args.use_asset_ref, args.original_only, exclude_extensions):
                     successful_downloads += 1
                 else:
                     error_count += 1
@@ -292,7 +312,7 @@ def main(args):
             for i, folder_id in enumerate(folder_ids, 1):
                 logging.info(
                     f"Processing folder {i}/{total_folders}: {folder_id}")
-                if process_folder(client, folder_id, download_path, args.use_asset_ref, args.original_only):
+                if process_folder(client, folder_id, download_path, args.use_asset_ref, args.original_only, exclude_extensions):
                     successful_folders += 1
                 else:
                     error_count += 1
@@ -346,6 +366,9 @@ if __name__ == "__main__":
     parser.add_argument('--original-only',
                         action='store_true',
                         help='Download only the original (first generation) files from each asset')
+    parser.add_argument('--exclude-extensions',
+                        nargs='+',
+                        help='File extensions to exclude from download (e.g., --exclude-extensions mp4 avi mov). Extensions are case-insensitive and can be specified with or without leading dots.')
 
     args = parser.parse_args()
     main(args)
