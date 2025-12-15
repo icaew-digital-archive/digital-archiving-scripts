@@ -17,7 +17,7 @@ The script can process entities in two ways:
 2. From a file: processes specific references listed in a text file (one per line)
 
 Usage: 
-    a_get_metadata.py [-h] (--preservica-folder-ref FOLDER_REF | --references-file FILE) --metadata-csv METADATA_CSV [--algorithm ALGORITHM] [--new-template] [--exclude-folders EXCLUDE_FOLDERS] [--entity-type {assets,folders,both}]
+    a_get_metadata.py [-h] (--preservica-folder-ref FOLDER_REF | --references-file FILE) --metadata-csv METADATA_CSV [--algorithm ALGORITHM] [--new-template] [--exclude-folders EXCLUDE_FOLDERS] [--entity-type {assets,folders,both}] [--all-generations]
 
 Options:
     --preservica-folder-ref      Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder. Required if --references-file is not provided.
@@ -27,6 +27,7 @@ Options:
     --new-template               Flag to use new template with extended Dublin Core elements
     --exclude-folders            List of folder references to exclude from processing. These folders and their children will be skipped.
     --entity-type                Type of entities to include in output (choices: assets, folders, both) [default: both]
+    --all-generations            Extract metadata from all generations, including derived files. By default, only the original submitted file (first generation) is processed.
 
 Output CSV Columns:
     ALL algorithm mode:
@@ -42,7 +43,7 @@ Output CSV Columns:
 Features:
     - Extracts all available checksum algorithms by default (MD5, SHA1, SHA256)
     - Includes full Preservica folder path from root to asset
-    - Processes only first generation (original ingested) assets
+    - By default, processes only first generation (original submitted) files; can be configured to include all generations
     - Supports processing from folder or from a list of references in a text file
     - Supports exclusion of specific folders and their children (folder mode only)
     - Handles both Dublin Core and ICAEW metadata
@@ -122,7 +123,12 @@ def parse_arguments():
                         help='List of folder references to exclude from processing. These folders and their children will be skipped.')
     parser.add_argument('--entity-type', default='both', choices=['assets', 'folders', 'both'],
                         help='Type of entities to include in output (choices: assets, folders, both) [default: both]')
+    parser.add_argument('--all-generations', action='store_true',
+                        help='Extract metadata from all generations, including derived files. By default, only the original submitted file (first generation) is processed.')
     args = parser.parse_args()
+    
+    # Set original_only based on all_generations flag (default is True, meaning only original)
+    args.original_only = not args.all_generations
     
     # Create backward-compatible attribute names for existing code
     args.preservica_folder_ref = getattr(args, 'preservica_folder_ref', None)
@@ -646,33 +652,49 @@ def main():
                     else:
                         dc_icaew_data.append('')
             
-            # Collect format and checksum information for first generation only
+            # Collect format and checksum information
             format_checksum_data = []
             for representation in client.representations(entity):
+                # When original_only is True, only process Preservation representations
+                # (Access representations contain derived files like PDFs)
+                if args.original_only:
+                    rep_name = (getattr(representation, 'name', '') or '').lower()
+                    rep_type = (getattr(representation, 'type', '') or '').lower()
+                    if rep_name or rep_type:
+                        if 'preservation' not in rep_name and 'preservation' not in rep_type:
+                            continue  # Skip non-preservation representations
+                    # If no name/type, assume it's preservation (fall through)
+                
                 for content_object in client.content_objects(representation):
                     try:
-                        # Get only the first generation (original ingested content)
                         generations = list(client.generations(content_object))
                         if generations:
-                            first_generation = generations[0]  # First generation only
-                            for bitstream in first_generation.bitstreams:
-                                if args.algorithm == 'ALL':
-                                    format_data = {
-                                        'filename': bitstream.filename,
-                                        'file_size': bitstream.length,  # Use length instead of file_size
-                                        'file_extension': extract_file_extension(bitstream.filename),
-                                        'md5_checksum': bitstream.fixity.get('MD5', ''),
-                                        'sha1_checksum': bitstream.fixity.get('SHA1', ''),
-                                        'sha256_checksum': bitstream.fixity.get('SHA256', '')
-                                    }
-                                else:
-                                    format_data = {
-                                        'filename': bitstream.filename,
-                                        'file_size': bitstream.length,  # Use length instead of file_size
-                                        'file_extension': extract_file_extension(bitstream.filename),
-                                        'checksum': bitstream.fixity.get(args.algorithm, '') if args.algorithm in bitstream.fixity else ''
-                                    }
-                                format_checksum_data.append(format_data)
+                            # By default, use only first generation (original submitted file)
+                            # Use --all-generations flag to process all generations including derived files
+                            if args.original_only:
+                                generations_to_process = [generations[0]]  # First generation only (original submitted)
+                            else:
+                                generations_to_process = generations  # All generations (including derived)
+                            
+                            for generation in generations_to_process:
+                                for bitstream in generation.bitstreams:
+                                    if args.algorithm == 'ALL':
+                                        format_data = {
+                                            'filename': bitstream.filename,
+                                            'file_size': bitstream.length,  # Use length instead of file_size
+                                            'file_extension': extract_file_extension(bitstream.filename),
+                                            'md5_checksum': bitstream.fixity.get('MD5', ''),
+                                            'sha1_checksum': bitstream.fixity.get('SHA1', ''),
+                                            'sha256_checksum': bitstream.fixity.get('SHA256', '')
+                                        }
+                                    else:
+                                        format_data = {
+                                            'filename': bitstream.filename,
+                                            'file_size': bitstream.length,  # Use length instead of file_size
+                                            'file_extension': extract_file_extension(bitstream.filename),
+                                            'checksum': bitstream.fixity.get(args.algorithm, '') if args.algorithm in bitstream.fixity else ''
+                                        }
+                                    format_checksum_data.append(format_data)
                     except Exception as e:
                         logging.error(f"Error processing bitstream for {asset.title}: {e}")
                         error_count += 1
