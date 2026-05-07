@@ -10,7 +10,7 @@ This script extracts comprehensive information from Preservica assets including:
 - File format information (filename, file size, file extension)
 - Full Preservica path from root to asset
 - Dublin Core and ICAEW metadata
-- Only processes first generation (original ingested) assets
+- Only processes first generation (original ingested) assets46357ae5-5278-461d-a9c7-b269ba59e861
 
 The script can process entities in two ways:
 1. From a folder: retrieves all descendants of a specified folder
@@ -55,6 +55,7 @@ Features:
 import argparse
 import csv
 import os
+import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict, Counter
 import logging
@@ -408,15 +409,15 @@ def main():
     client = initialize_client(username, password, tenant, server)
     args = parse_arguments()
 
-    # Updated CSV header to include format information
+    # Updated CSV header to include format information and fragment count
     if args.algorithm == 'ALL':
         csv_header = ['assetId', 'MD5 checksum', 'SHA1 checksum', 'SHA256 checksum', 'entity.entity_type',
                       'asset.security_tag', 'entity.title', 'entity.description', 'preservica_path',
-                      'filename', 'file_size', 'file_extension']
+                      'filename', 'file_size', 'file_extension', 'total_metadata_fragments']
     else:
         csv_header = ['assetId', f'{args.algorithm} checksum', 'entity.entity_type',
                       'asset.security_tag', 'entity.title', 'entity.description', 'preservica_path',
-                      'filename', 'file_size', 'file_extension']
+                      'filename', 'file_size', 'file_extension', 'total_metadata_fragments']
     max_counts = defaultdict(int)
 
     # Get entities either from folder or from references file
@@ -443,8 +444,12 @@ def main():
     print("PHASE 1: DISCOVERY - Analyzing metadata structure")
     print(f"{'='*70}")
     print(f"Scanning {len(descendants)} entities to discover all metadata fields...")
+    print(f"  This may take a few moments depending on the number of entities...\n")
     
+    start_time = time.time()
     processed = 0
+    errors_in_discovery = 0
+    
     for entity in descendants:
         try:
             xml_string = client.metadata_for_entity(
@@ -457,14 +462,36 @@ def main():
             max_counts = extract_icaew_elements_and_update_header(
                 icaew_xml, max_counts)
             processed += 1
-            if processed % 50 == 0:
-                print(f"  Processed {processed}/{len(descendants)} entities...", end='\r')
+            
+            # Show progress more frequently (every 10 entities, or every 25 for large datasets)
+            update_interval = 10 if len(descendants) < 1000 else 25
+            if processed % update_interval == 0 or processed == len(descendants):
+                percentage = (processed / len(descendants)) * 100
+                elapsed = time.time() - start_time
+                if processed > 0:
+                    avg_time_per_entity = elapsed / processed
+                    remaining = (len(descendants) - processed) * avg_time_per_entity
+                    if remaining > 60:
+                        eta = f" (~{remaining/60:.1f} min remaining)"
+                    elif remaining > 0:
+                        eta = f" (~{remaining:.0f} sec remaining)"
+                    else:
+                        eta = ""
+                else:
+                    eta = ""
+                print(f"  Progress: {processed}/{len(descendants)} entities ({percentage:.1f}%){eta}", end='\r', flush=True)
         except Exception as e:
             logging.error(
                 f"Skipping entity {entity.reference} due to metadata error: {e}")
             error_count += 1
+            errors_in_discovery += 1
+            processed += 1  # Count errors as processed to keep progress accurate
     
-    print(f"  Processed {processed}/{len(descendants)} entities.          ")
+    elapsed_time = time.time() - start_time
+    final_percentage = (processed / len(descendants)) * 100 if len(descendants) > 0 else 100.0
+    print(f"  Processed {processed}/{len(descendants)} entities ({final_percentage:.1f}%) in {elapsed_time:.1f} seconds.          ")
+    if errors_in_discovery > 0:
+        print(f"  ⚠️  {errors_in_discovery} entities had errors during discovery (check logs for details)")
     
     # Display discovered fields
     print(f"\nDiscovery complete. Found the following metadata fields:")
@@ -536,6 +563,32 @@ def main():
             else:
                 continue
                 
+            # Count metadata fragments
+            total_fragments = 0
+            try:
+                if hasattr(client, 'all_metadata'):
+                    metadata_fragments = list(client.all_metadata(entity))
+                    total_fragments = len(metadata_fragments)
+                else:
+                    # Fallback: count fragments manually
+                    fragment_count = 0
+                    try:
+                        dc_xml = client.metadata_for_entity(entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
+                        if dc_xml:
+                            fragment_count += 1
+                    except:
+                        pass
+                    try:
+                        icaew_xml = client.metadata_for_entity(entity, 'https://www.icaew.com/metadata/')
+                        if icaew_xml:
+                            fragment_count += 1
+                    except:
+                        pass
+                    total_fragments = fragment_count
+            except Exception as e:
+                logging.debug(f"Error counting fragments for {entity.reference}: {e}")
+                total_fragments = 0
+            
             dc_values = defaultdict(list)
             icaew_values = {}
             # Get ICAEW metadata
@@ -610,9 +663,9 @@ def main():
                 field_usage = defaultdict(int)
                 # Determine the starting column for DC/ICAEW metadata based on algorithm mode
                 if args.algorithm == 'ALL':
-                    dc_start_column = 12  # After asset info (5) + checksums (3) + format fields (3)
+                    dc_start_column = 13  # After asset info (5) + checksums (3) + format fields (3) + fragment count (1)
                 else:
-                    dc_start_column = 10  # After asset info (7) + format fields (3)
+                    dc_start_column = 11  # After asset info (7) + format fields (3) + fragment count (1)
                 
                 for header in csv_header[dc_start_column:]:  # Start from appropriate column
                     if header.startswith('dc:'):
@@ -633,9 +686,9 @@ def main():
                 field_usage = defaultdict(int)
                 # Determine the starting column for DC/ICAEW metadata based on algorithm mode
                 if args.algorithm == 'ALL':
-                    dc_start_column = 12  # After asset info (5) + checksums (3) + format fields (3)
+                    dc_start_column = 13  # After asset info (5) + checksums (3) + format fields (3) + fragment count (1)
                 else:
-                    dc_start_column = 10  # After asset info (7) + format fields (3)
+                    dc_start_column = 11  # After asset info (7) + format fields (3) + fragment count (1)
                 
                 for header in csv_header[dc_start_column:]:  # Start from appropriate column
                     if header.startswith('icaew:'):
@@ -653,10 +706,14 @@ def main():
                         dc_icaew_data.append('')
             
             # Collect format and checksum information
-            format_checksum_data = []
+            # Separate original submitted files from derived files
+            original_files = []
+            derived_files = []
+            
             for representation in client.representations(entity):
                 # When original_only is True, only process Preservation representations
                 # (Access representations contain derived files like PDFs)
+                is_preservation = False
                 if args.original_only:
                     rep_name = (getattr(representation, 'name', '') or '').lower()
                     rep_type = (getattr(representation, 'type', '') or '').lower()
@@ -664,6 +721,16 @@ def main():
                         if 'preservation' not in rep_name and 'preservation' not in rep_type:
                             continue  # Skip non-preservation representations
                     # If no name/type, assume it's preservation (fall through)
+                    is_preservation = True
+                else:
+                    # When --all-generations is used, check if this is preservation representation
+                    rep_name = (getattr(representation, 'name', '') or '').lower()
+                    rep_type = (getattr(representation, 'type', '') or '').lower()
+                    if rep_name or rep_type:
+                        if 'preservation' in rep_name or 'preservation' in rep_type:
+                            is_preservation = True
+                    else:
+                        is_preservation = True  # Assume preservation if no name/type
                 
                 for content_object in client.content_objects(representation):
                     try:
@@ -676,7 +743,9 @@ def main():
                             else:
                                 generations_to_process = generations  # All generations (including derived)
                             
-                            for generation in generations_to_process:
+                            for gen_index, generation in enumerate(generations_to_process):
+                                is_original_submitted = (is_preservation and gen_index == 0)
+                                
                                 for bitstream in generation.bitstreams:
                                     if args.algorithm == 'ALL':
                                         format_data = {
@@ -694,18 +763,24 @@ def main():
                                             'file_extension': extract_file_extension(bitstream.filename),
                                             'checksum': bitstream.fixity.get(args.algorithm, '') if args.algorithm in bitstream.fixity else ''
                                         }
-                                    format_checksum_data.append(format_data)
+                                    
+                                    # Separate original submitted files from derived files
+                                    if is_original_submitted:
+                                        original_files.append(format_data)
+                                    else:
+                                        derived_files.append(format_data)
                     except Exception as e:
                         logging.error(f"Error processing bitstream for {asset.title}: {e}")
                         error_count += 1
             
+            # Combine: original files first, then derived files
+            format_checksum_data = original_files + derived_files
+            
             # Write rows for format and checksum data
             if format_checksum_data:
-                # Write first row with all metadata and format info
-                first_format_data = format_checksum_data[0]
-                
                 if args.algorithm == 'ALL':
-                    # Build complete row with multiple checksums
+                    # Write first row with all metadata and format info (original file is always first)
+                    first_format_data = format_checksum_data[0]
                     complete_row = [base_row_data[0]]  # assetId
                     complete_row.extend([
                         first_format_data['md5_checksum'],
@@ -716,9 +791,10 @@ def main():
                     complete_row.extend([
                         first_format_data['filename'],
                         first_format_data['file_size'],
-                        first_format_data['file_extension']
-                    ])  # Format data (columns 9-11)
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 12+)
+                        first_format_data['file_extension'],
+                        total_fragments  # Fragment count (column 13)
+                    ])  # Format data + fragment count (columns 9-13)
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 14+) - only for first row (original file)
                     csv_writer.writerow(complete_row)
                     rows_written += 1
                     
@@ -735,23 +811,25 @@ def main():
                         blank_row.extend([
                             format_data['filename'],
                             format_data['file_size'],
-                            format_data['file_extension']
-                        ])  # Format data
+                            format_data['file_extension'],
+                            total_fragments  # Fragment count (column 13)
+                        ])  # Format data + fragment count
                         blank_row.extend([''] * len(dc_icaew_data))  # Empty DC/ICAEW fields
                         csv_writer.writerow(blank_row)
                         rows_written += 1
                 else:
                     # Single algorithm mode
+                    # Write first row with all metadata and format info (original file is always first)
+                    first_format_data = format_checksum_data[0]
                     base_row_data[1] = first_format_data['checksum']  # checksum
-                    
-                    # Build complete row: asset info + format data + DC/ICAEW metadata
                     complete_row = base_row_data[:7]  # Asset info (first 7 columns including path)
                     complete_row.extend([
                         first_format_data['filename'],
                         first_format_data['file_size'],
-                        first_format_data['file_extension']
-                    ])  # Format data (columns 7-9)
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 10+)
+                        first_format_data['file_extension'],
+                        total_fragments  # Fragment count (column 11)
+                    ])  # Format data + fragment count (columns 7-11)
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 12+) - only for first row (original file)
                     csv_writer.writerow(complete_row)
                     rows_written += 1
                     
@@ -764,8 +842,9 @@ def main():
                         blank_row.extend([
                             format_data['filename'],
                             format_data['file_size'],
-                            format_data['file_extension']
-                        ])  # Format data
+                            format_data['file_extension'],
+                            total_fragments  # Fragment count (column 11)
+                        ])  # Format data + fragment count
                         blank_row.extend([''] * len(dc_icaew_data))  # Empty DC/ICAEW fields
                         csv_writer.writerow(blank_row)
                         rows_written += 1
@@ -775,14 +854,14 @@ def main():
                     complete_row = [base_row_data[0]]  # assetId
                     complete_row.extend(['', '', ''])  # Empty checksums (MD5, SHA1, SHA256)
                     complete_row.extend(base_row_data[2:7])  # entity_type, security_tag, title, description, path
-                    complete_row.extend(['', '', ''])  # Empty format fields
+                    complete_row.extend(['', '', '', total_fragments])  # Empty format fields + fragment count
                     complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata
                     csv_writer.writerow(complete_row)
                     rows_written += 1
                 else:
                     complete_row = base_row_data[:7]  # Asset info (first 7 columns including path)
-                    complete_row.extend(['', '', ''])  # Empty format fields (columns 7-9)
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 10+)
+                    complete_row.extend(['', '', '', total_fragments])  # Empty format fields + fragment count (columns 7-11)
+                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 12+)
                     csv_writer.writerow(complete_row)
                     rows_written += 1
             
