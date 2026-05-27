@@ -16,12 +16,10 @@ Dependencies:
 
 """
 
+import argparse
 import requests
 from bs4 import BeautifulSoup
 import time
-
-# URL for fetching the data
-url = "https://crt.sh/?q=icaew.com"
 
 # Function to fetch and extract unique matching identities
 
@@ -104,17 +102,35 @@ def write_list_to_file(filename, data_list):
             file.write(f"{item}\n")
 
 
-# Fetch and extract unique identities
-unique_identities = fetch_and_extract_unique_matching_identities(url)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Fetch unique SSL/TLS certificate identities for a domain from crt.sh.",
+        epilog="Example: python crt-scraper.py icaew.com --output icaew_certs.txt",
+    )
+    parser.add_argument("domain", help="Domain to query on crt.sh (e.g. icaew.com)")
+    parser.add_argument(
+        "--output",
+        default="unique_matching_identities.txt",
+        metavar="OUTPUT_FILE",
+        help="Output text file (default: unique_matching_identities.txt)",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=3,
+        metavar="N",
+        help="Maximum number of retry attempts on rate-limit errors (default: 3)",
+    )
+    args = parser.parse_args()
 
-# Only write to file if we successfully got data
-if unique_identities is not None:
-    if len(unique_identities) > 0:
-        # Write the unique list to a text file
-        output_file = "unique_matching_identities.txt"
-        write_list_to_file(output_file, unique_identities)
-        print(f"Unique matching identities have been written to {output_file}")
+    query_url = f"https://crt.sh/?q={args.domain}"
+    unique_identities = fetch_and_extract_unique_matching_identities(query_url, max_retries=args.retries)
+
+    if unique_identities is not None:
+        if len(unique_identities) > 0:
+            write_list_to_file(args.output, unique_identities)
+            print(f"Unique matching identities have been written to {args.output}")
+        else:
+            print("No matching identities found in the response.")
     else:
-        print("No matching identities found in the response.")
-else:
-    print("Failed to fetch data. No file written.")
+        print("Failed to fetch data. No file written.")

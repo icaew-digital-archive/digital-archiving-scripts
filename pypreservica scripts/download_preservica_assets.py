@@ -54,7 +54,7 @@ from dotenv import load_dotenv
 from pyPreservica import *
 
 # Load configuration from environment variables
-load_dotenv(override=True)
+load_dotenv()
 USERNAME = os.getenv('USERNAME')
 PASSWORD = os.getenv('PASSWORD')
 TENANT = os.getenv('TENANT')

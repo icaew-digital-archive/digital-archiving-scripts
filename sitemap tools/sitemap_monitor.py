@@ -10,10 +10,10 @@ import requests
 def main():
     parser = argparse.ArgumentParser(description='Monitor changes to Sitemap')
     parser.add_argument('--sitemap', nargs='+', required=True, help='Sitemap URLs to monitor')
-    parser.add_argument('-or', '--outputremoved', action='store_true', help='Show removed URLs')
-    parser.add_argument('-on', '--outputnew', action='store_true', help='Show new URLs')
-    parser.add_argument('-fa', '--filterand', nargs='*', help='Filter new URLs - all keywords must be present')
-    parser.add_argument('-fo', '--filteror', nargs='*', help='Filter new URLs - at least one keyword must be present')
+    parser.add_argument('-r', '--show-removed', action='store_true', help='Print removed URLs')
+    parser.add_argument('-n', '--show-new', action='store_true', help='Print new URLs')
+    parser.add_argument('--filter-all', nargs='*', metavar='KEYWORD', dest='filterand', help='Filter new URLs — all keywords must be present')
+    parser.add_argument('--filter-any', nargs='*', metavar='KEYWORD', dest='filteror', help='Filter new URLs — at least one keyword must be present')
     args = parser.parse_args()
 
     sitemap_memory = "./sitemap_memory.json"
@@ -24,11 +24,11 @@ def main():
 
     display_sitemap_summary(sitemap_memory, latest_sitemap_urls, previous_sitemap_urls, new_urls, removed_urls)
 
-    if args.outputremoved:
+    if args.show_removed:
         print("Removed URLs:")
         print("\n".join(removed_urls) if removed_urls else "None")
 
-    if args.outputnew:
+    if args.show_new:
         print("New URLs:")
         print("\n".join(new_urls) if new_urls else "None")
 

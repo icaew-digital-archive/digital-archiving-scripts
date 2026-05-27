@@ -16,7 +16,7 @@ The script can process entities in two ways:
 1. From a folder: retrieves all descendants of a specified folder
 2. From a file: processes specific references listed in a text file (one per line)
 
-Usage: 
+Usage:
     a_get_metadata.py [-h] (--preservica-folder-ref FOLDER_REF | --references-file FILE) --metadata-csv METADATA_CSV [--algorithm ALGORITHM] [--new-template] [--exclude-folders EXCLUDE_FOLDERS] [--entity-type {assets,folders,both}] [--all-generations]
 
 Options:
@@ -31,13 +31,13 @@ Options:
 
 Output CSV Columns:
     ALL algorithm mode:
-        assetId, MD5 checksum, SHA1 checksum, SHA256 checksum, entity.entity_type, asset.security_tag, 
-        entity.title, entity.description, preservica_path, filename, file_size, file_extension, 
+        assetId, MD5 checksum, SHA1 checksum, SHA256 checksum, entity.entity_type, asset.security_tag,
+        entity.title, entity.description, preservica_path, filename, file_size, file_extension,
         icaew:ContentType, dc:title, dc:description, dc:date, dc:type, dc:identifier
-    
+
     Single algorithm mode:
-        assetId, [ALGORITHM] checksum, entity.entity_type, asset.security_tag, entity.title, 
-        entity.description, preservica_path, filename, file_size, file_extension, 
+        assetId, [ALGORITHM] checksum, entity.entity_type, asset.security_tag, entity.title,
+        entity.description, preservica_path, filename, file_size, file_extension,
         icaew:ContentType, dc:title, dc:description, dc:date, dc:type, dc:identifier
 
 Features:
@@ -60,9 +60,8 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict, Counter
 import logging
 from dotenv import load_dotenv
-from pyPreservica import EntityAPI, only_assets
+from pyPreservica import EntityAPI
 
-# Set up logging to file and console
 log_file = "errors.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -73,8 +72,15 @@ logging.basicConfig(
     ]
 )
 
-# Global error counter
 error_count = 0
+
+DC_SCHEMA = 'http://www.openarchives.org/OAI/2.0/oai_dc/'
+ICAEW_SCHEMA = 'https://www.icaew.com/metadata/'
+
+# Shared caches to avoid redundant API calls across both phases
+_entity_cache = {}   # ref -> full entity object (asset or folder)
+_path_cache = {}     # ref -> full path string
+_metadata_cache = {} # ref -> list of (schema, xml_string) tuples from all_metadata()
 
 
 def load_env_variables():
@@ -84,21 +90,16 @@ def load_env_variables():
     password = os.getenv('PASSWORD')
     tenant = os.getenv('TENANT')
     server = os.getenv('SERVER')
-
-    if not username or not password or not tenant or not server:
-        logging.error(
-            "One or more environment variables are missing. Please check the .env file.")
+    if not all([username, password, tenant, server]):
+        logging.error("One or more environment variables are missing. Please check the .env file.")
         exit(1)
-
     return username, password, tenant, server
 
 
 def initialize_client(username, password, tenant, server):
     logging.info("Initializing Preservica API client")
     try:
-        client = EntityAPI(username=username, password=password,
-                           tenant=tenant, server=server)
-        return client
+        return EntityAPI(username=username, password=password, tenant=tenant, server=server)
     except Exception as e:
         global error_count
         logging.error(f"Failed to initialize Preservica API client: {e}")
@@ -111,37 +112,117 @@ def parse_arguments():
         description='Export metadata and checksums to CSV from Preservica.')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--preservica-folder-ref',
-                        help='Preservica folder reference. Example: "bb45f999-7c07-4471-9c30-54b057c500ff". Enter "root" if needing to get metadata from the root folder')
+                       help='Preservica folder reference. Enter "root" for the root folder.')
     group.add_argument('--references-file',
-                        help='Path to a text file containing Preservica references (one per line)')
+                       help='Path to a text file containing Preservica references (one per line)')
     parser.add_argument('--metadata-csv', required=True,
                         help='Output CSV filename for metadata and checksums')
     parser.add_argument('--algorithm', default='ALL', choices=['MD5', 'SHA1', 'SHA256', 'ALL'],
-                        help='The checksum algorithm to use (choices: MD5, SHA1, SHA256, ALL) [default: ALL]')
+                        help='The checksum algorithm to use [default: ALL]')
     parser.add_argument('--new-template', action='store_true',
                         help='Flag to use new template with extended Dublin Core elements')
     parser.add_argument('--exclude-folders', nargs='+',
-                        help='List of folder references to exclude from processing. These folders and their children will be skipped.')
+                        help='Folder references to exclude (and their children)')
     parser.add_argument('--entity-type', default='both', choices=['assets', 'folders', 'both'],
-                        help='Type of entities to include in output (choices: assets, folders, both) [default: both]')
+                        help='Type of entities to include [default: both]')
     parser.add_argument('--all-generations', action='store_true',
-                        help='Extract metadata from all generations, including derived files. By default, only the original submitted file (first generation) is processed.')
+                        help='Extract metadata from all generations (default: first generation only)')
     args = parser.parse_args()
-    
-    # Set original_only based on all_generations flag (default is True, meaning only original)
     args.original_only = not args.all_generations
-    
-    # Create backward-compatible attribute names for existing code
-    args.preservica_folder_ref = getattr(args, 'preservica_folder_ref', None)
-    args.metadata_csv = getattr(args, 'metadata_csv', None)
-    args.exclude_folders = getattr(args, 'exclude_folders', None)
-    args.entity_type = getattr(args, 'entity_type', None)
-    args.new_template = getattr(args, 'new_template', None)
-    args.references_file = getattr(args, 'references_file', None)
-    
     if args.preservica_folder_ref == 'root':
         args.preservica_folder_ref = None
     return args
+
+
+def get_cached_entity(client, entity):
+    """Fetch and cache a full entity object (asset or folder) by entity stub."""
+    ref = entity.reference
+    if ref not in _entity_cache:
+        if str(entity.entity_type) == 'EntityType.FOLDER':
+            _entity_cache[ref] = client.folder(ref)
+        else:
+            _entity_cache[ref] = client.asset(ref)
+    return _entity_cache[ref]
+
+
+def get_cached_folder(client, ref):
+    """Fetch and cache a folder by reference string."""
+    if ref not in _entity_cache:
+        _entity_cache[ref] = client.folder(ref)
+    return _entity_cache[ref]
+
+
+def fetch_and_cache_metadata(client, entity):
+    """
+    Fetch all metadata schemas for an entity in a single all_metadata() call and cache
+    the result. Returns a list of (schema, xml_string) tuples.
+    Raises on API error so the caller can track discovery errors.
+    Note: all_metadata() requires a fully-fetched entity, not a stub from all_descendants().
+    """
+    ref = entity.reference
+    if ref in _metadata_cache:
+        return _metadata_cache[ref]
+    full_entity = get_cached_entity(client, entity)
+    results = list(client.all_metadata(full_entity))
+    _metadata_cache[ref] = results
+    return results
+
+
+def get_cached_metadata(entity):
+    """Return cached metadata as {'dc': xml_or_None, 'icaew': xml_or_None}."""
+    cached = _metadata_cache.get(entity.reference, [])
+    dc_xml = None
+    icaew_xml = None
+    for schema, xml_string in cached:
+        if DC_SCHEMA in schema:
+            dc_xml = xml_string
+        elif ICAEW_SCHEMA in schema or 'icaew' in schema.lower():
+            icaew_xml = xml_string
+    return dc_xml, icaew_xml
+
+
+def get_full_preservica_path(client, entity):
+    """Build the full path from root to entity, caching both entity objects and completed paths."""
+    ref = entity.reference
+    if ref in _path_cache:
+        return _path_cache[ref]
+
+    path_parts = []
+    try:
+        full_entity = get_cached_entity(client, entity)
+        path_parts.append(full_entity.title or full_entity.reference)
+
+        parent_ref = full_entity.parent
+        while parent_ref is not None:
+            if parent_ref in _path_cache:
+                # Reuse an already-computed ancestor path
+                path_parts.reverse()
+                result = _path_cache[parent_ref] + '/' + '/'.join(path_parts)
+                _path_cache[ref] = result
+                return result
+            try:
+                parent_folder = get_cached_folder(client, parent_ref)
+                path_parts.append(parent_folder.title or parent_folder.reference)
+                parent_ref = parent_folder.parent
+            except Exception as e:
+                logging.error(f"Error getting parent folder {parent_ref}: {e}")
+                path_parts.append(parent_ref)
+                break
+
+        path_parts.reverse()
+        result = '/'.join(path_parts)
+    except Exception as e:
+        logging.error(f"Error building path for {entity.reference}: {e}")
+        result = entity.reference
+
+    _path_cache[ref] = result
+    return result
+
+
+def extract_file_extension(filename):
+    if filename:
+        return os.path.splitext(filename)[1].lower().lstrip('.')
+    return ''
 
 
 def extract_dc_elements_and_update_header(xml_string, max_counts):
@@ -158,10 +239,7 @@ def extract_dc_elements_and_update_header(xml_string, max_counts):
 def extract_icaew_elements_and_update_header(xml_string, max_counts):
     if xml_string is not None:
         root = ET.fromstring(xml_string)
-        # ICAEW fields are under the ICAEW namespace
-        # Recursively find all elements to handle nested structures
         for elem in root.iter():
-            # Skip the root element itself
             if elem == root:
                 continue
             tag = elem.tag.split('}')[-1]
@@ -171,58 +249,70 @@ def extract_icaew_elements_and_update_header(xml_string, max_counts):
     return max_counts
 
 
-def extract_file_extension(filename):
-    """Extract file extension from filename without the period"""
-    if filename:
-        return os.path.splitext(filename)[1].lower().lstrip('.')
-    return ''
+def parse_dc_values(xml_string):
+    dc_values = defaultdict(list)
+    if xml_string:
+        root = ET.fromstring(xml_string)
+        for child in root:
+            tag = child.tag.split('}')[-1]
+            if child.text:
+                dc_values[f"dc:{tag}"].append(child.text)
+    return dc_values
 
 
-def get_full_preservica_path(client, entity):
-    """Get the full Preservica path from root to the entity"""
-    path_parts = []
-    current = entity
-    
-    try:
-        # Get the properly instantiated entity
-        if str(entity.entity_type) == 'EntityType.FOLDER':
-            current = client.folder(entity.reference)
-        else:  # EntityType.ASSET
-            current = client.asset(entity.reference)
-        
-        # Add the current entity's title
-        path_parts.append(current.title or current.reference)
-        
-        # Traverse up the hierarchy
-        parent_ref = current.parent
-        while parent_ref is not None:
-            try:
-                parent_folder = client.folder(parent_ref)
-                path_parts.append(parent_folder.title or parent_folder.reference)
-                parent_ref = parent_folder.parent
-            except Exception as e:
-                logging.error(f"Error getting parent folder {parent_ref}: {e}")
-                path_parts.append(parent_ref)  # Add reference if title unavailable
-                break
-        
-        # Reverse the list to get root-to-leaf order and join with '/'
-        path_parts.reverse()
-        return '/'.join(path_parts)
-        
-    except Exception as e:
-        logging.error(f"Error building path for {entity.reference}: {e}")
-        return entity.reference  # Fallback to reference if path building fails
+def parse_icaew_values(xml_string):
+    icaew_values = {}
+    if not xml_string:
+        return icaew_values
+    root = ET.fromstring(xml_string)
+    direct_child_ids = {id(child) for child in root}
+    for child in root:
+        tag = child.tag.split('}')[-1]
+        icaew_field = f"icaew:{tag}"
+        if len(child) == 0:
+            text_content = child.text or ''
+        else:
+            parts = []
+            if child.text and child.text.strip():
+                parts.append(child.text.strip())
+            for desc in child.iter():
+                if desc != child and desc.text and desc.text.strip():
+                    parts.append(desc.text.strip())
+            text_content = ' '.join(parts).strip()
+        if text_content or icaew_field not in icaew_values:
+            icaew_values[icaew_field] = text_content
+    # Pick up any nested fields not yet captured as direct children
+    for elem in root.iter():
+        if elem == root or id(elem) in direct_child_ids:
+            continue
+        tag = elem.tag.split('}')[-1]
+        icaew_field = f"icaew:{tag}"
+        if icaew_field not in icaew_values and elem.text:
+            icaew_values[icaew_field] = elem.text.strip()
+    return icaew_values
+
+
+def build_dc_icaew_row(csv_header, dc_start_column, dc_values, icaew_values):
+    """Build the DC/ICAEW portion of a CSV row from the given column offset."""
+    field_usage = defaultdict(int)
+    row = []
+    for header in csv_header[dc_start_column:]:
+        if header.startswith('dc:'):
+            value_list = dc_values[header]
+            usage = field_usage[header]
+            row.append(value_list[usage] if usage < len(value_list) else '')
+            field_usage[header] += 1
+        elif header.startswith('icaew:'):
+            row.append(icaew_values.get(header, ''))
+        else:
+            row.append('')
+    return row
 
 
 def read_references_from_file(file_path):
-    """Read Preservica references from a text file (one per line)"""
-    references = []
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                ref = line.strip()
-                if ref and not ref.startswith('#'):  # Skip empty lines and comments
-                    references.append(ref)
+            references = [line.strip() for line in f if line.strip() and not line.startswith('#')]
         logging.info(f"Read {len(references)} references from {file_path}")
         return references
     except FileNotFoundError:
@@ -234,172 +324,49 @@ def read_references_from_file(file_path):
 
 
 def get_entities_from_references(client, references):
-    """Get entity objects from a list of Preservica references"""
     global error_count
     entities = []
     for ref in references:
         try:
-            # Try as asset first
+            entity = client.asset(ref)
+            entities.append(entity)
+            logging.info(f"Successfully retrieved asset: {ref}")
+        except Exception:
             try:
-                entity = client.asset(ref)
+                entity = client.folder(ref)
                 entities.append(entity)
-                logging.info(f"Successfully retrieved asset: {ref}")
-            except Exception:
-                # If not an asset, try as folder
-                try:
-                    entity = client.folder(ref)
-                    entities.append(entity)
-                    logging.info(f"Successfully retrieved folder: {ref}")
-                except Exception as e:
-                    logging.error(f"Failed to retrieve entity {ref}: {e}")
-                    error_count += 1
-        except Exception as e:
-            logging.error(f"Error processing reference {ref}: {e}")
-            error_count += 1
+                logging.info(f"Successfully retrieved folder: {ref}")
+            except Exception as e:
+                logging.error(f"Failed to retrieve entity {ref}: {e}")
+                error_count += 1
     logging.info(f"Retrieved {len(entities)} entities from {len(references)} references")
     return entities
 
 
 def get_all_descendants_with_logging(client, folder_ref, exclude_folders=None):
-    logging.info(
-        f"Starting retrieval of descendants for folder reference: {folder_ref}")
-
-    if exclude_folders is None:
-        exclude_folders = []
-
-    # Get all descendants first
+    logging.info(f"Starting retrieval of descendants for folder reference: {folder_ref}")
     all_descendants = list(client.all_descendants(folder_ref))
 
-    # Create a set of excluded folder references for faster lookup
+    if not exclude_folders:
+        logging.info(f"Total items retrieved: {len(all_descendants)}")
+        return all_descendants
+
+    # Build excluded set by collecting descendants of each excluded folder directly.
+    # This avoids traversing the full parent hierarchy for every entity in the collection.
     excluded_refs = set(exclude_folders)
-
-    # First, identify all entities that should be excluded (including children of excluded folders)
-    excluded_entities = set()
-    for entity in all_descendants:
+    for excl_ref in exclude_folders:
         try:
-            # Get the entity's parent reference
-            if str(entity.entity_type) == 'EntityType.FOLDER':
-                current = client.folder(entity.reference)
-            else:  # EntityType.ASSET
-                current = client.asset(entity.reference)
-
-            # If this is a folder and it's directly in the excluded list, add it
-            if str(entity.entity_type) == 'EntityType.FOLDER' and current.reference in excluded_refs:
-                excluded_entities.add(current.reference)
-                logging.info(
-                    f"Marking folder for exclusion: {current.reference}")
-                continue
-
-            # Check parent hierarchy for both folders and assets
-            parent_ref = current.parent
-            while parent_ref is not None:
-                if parent_ref in excluded_refs:
-                    excluded_entities.add(entity.reference)
-                    logging.info(
-                        f"Marking {'folder' if str(entity.entity_type) == 'EntityType.FOLDER' else 'asset'} for exclusion (child of excluded folder): {entity.reference}")
-                    break
-                parent_folder = client.folder(parent_ref)
-                parent_ref = parent_folder.parent
+            for desc in client.all_descendants(excl_ref):
+                excluded_refs.add(desc.reference)
+            logging.info(f"Marked folder {excl_ref} and its descendants for exclusion")
         except Exception as e:
-            logging.error(
-                f"Error checking hierarchy for {entity.reference}: {e}")
-            continue
+            logging.error(f"Error getting descendants of excluded folder {excl_ref}: {e}")
 
-    # Now filter the descendants using our complete set of excluded entities
-    filtered_descendants = []
-    for entity in all_descendants:
-        if entity.reference in excluded_entities:
-            logging.info(f"Skipping excluded entity: {entity.reference}")
-            continue
-        filtered_descendants.append(entity)
-
-    logging.info(
-        f"Completed retrieval of descendants. Total items retrieved: {len(filtered_descendants)} (after exclusions)")
-    logging.info(f"Total entities excluded: {len(excluded_entities)}")
-    return filtered_descendants
-
-
-def retrieve_metadata_and_checksums(client, descendants, csv_writer, csv_header, algorithm, new_template):
-    global error_count
-
-    for entity in descendants:
-        if str(entity.entity_type) == 'EntityType.FOLDER':
-            asset = client.folder(entity.reference)
-        elif str(entity.entity_type) == 'EntityType.ASSET':
-            asset = client.asset(entity.reference)
-        else:
-            continue
-
-        logging.info(
-            f"Getting metadata and checksum for assetID: {asset.reference}")
-
-        try:
-            xml_string = client.metadata_for_entity(
-                entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-        except Exception as e:
-            logging.error(
-                f"Skipping metadata for entity {entity.reference}: {e}")
-            error_count += 1
-            continue
-
-        dc_values = defaultdict(list)
-
-        if xml_string is not None:
-            root = ET.fromstring(xml_string)
-            for child in root:
-                tag = child.tag.split('}')[-1]
-                dc_field = f"dc:{tag}"
-                if child.text:
-                    dc_values[dc_field].append(child.text)
-
-        # Create base row data with all metadata
-        base_row_data = [
-            asset.reference, '', asset.entity_type,
-            asset.security_tag, asset.title, asset.description
-        ]
-
-        # Add DC values if not using new template
-        if not new_template:
-            for header in csv_header[6:]:
-                if header.startswith('dc:'):
-                    # Join all values for this field, or use empty string if none
-                    if dc_values[header]:
-                        base_row_data.append('; '.join(dc_values[header]))
-                    else:
-                        base_row_data.append('')
-                elif header.startswith('icaew:'):
-                    base_row_data.append('')
-                else:
-                    base_row_data.append('')
-
-        # Collect all checksum values
-        checksum_values = []
-        for representation in client.representations(asset):
-            for content_object in client.content_objects(representation):
-                try:
-                    for generation in client.generations(content_object):
-                        for bitstream in generation.bitstreams:
-                            if algorithm in bitstream.fixity:
-                                checksum_values.append(
-                                    bitstream.fixity[algorithm])
-                except Exception as e:
-                    logging.error(f"Error processing asset {asset.title}: {e}")
-                    error_count += 1
-
-        # Write rows for checksums
-        if checksum_values:
-            # Write first row with all metadata
-            base_row_data[1] = checksum_values[0]
-            csv_writer.writerow(base_row_data)
-
-            # Write additional rows with only checksum
-            for checksum in checksum_values[1:]:
-                blank_row = [''] * len(base_row_data)  # Create empty row
-                blank_row[1] = checksum  # Set only the checksum
-                csv_writer.writerow(blank_row)
-        else:
-            # If no checksums found, write the row with empty checksum field
-            csv_writer.writerow(base_row_data)
+    filtered = [e for e in all_descendants if e.reference not in excluded_refs]
+    excluded_count = len(all_descendants) - len(filtered)
+    logging.info(f"Total items after exclusions: {len(filtered)} (excluded {excluded_count})")
+    logging.info(f"Total entities excluded: {excluded_count}")
+    return filtered
 
 
 def main():
@@ -409,18 +376,18 @@ def main():
     client = initialize_client(username, password, tenant, server)
     args = parse_arguments()
 
-    # Updated CSV header to include format information and fragment count
     if args.algorithm == 'ALL':
-        csv_header = ['assetId', 'MD5 checksum', 'SHA1 checksum', 'SHA256 checksum', 'entity.entity_type',
-                      'asset.security_tag', 'entity.title', 'entity.description', 'preservica_path',
-                      'filename', 'file_size', 'file_extension', 'total_metadata_fragments']
+        csv_header = ['assetId', 'MD5 checksum', 'SHA1 checksum', 'SHA256 checksum',
+                      'entity.entity_type', 'asset.security_tag', 'entity.title',
+                      'entity.description', 'preservica_path', 'filename', 'file_size',
+                      'file_extension', 'total_metadata_fragments']
     else:
         csv_header = ['assetId', f'{args.algorithm} checksum', 'entity.entity_type',
-                      'asset.security_tag', 'entity.title', 'entity.description', 'preservica_path',
-                      'filename', 'file_size', 'file_extension', 'total_metadata_fragments']
+                      'asset.security_tag', 'entity.title', 'entity.description',
+                      'preservica_path', 'filename', 'file_size', 'file_extension',
+                      'total_metadata_fragments']
     max_counts = defaultdict(int)
 
-    # Get entities either from folder or from references file
     if args.references_file:
         logging.info(f"Reading references from file: {args.references_file}")
         references = read_references_from_file(args.references_file)
@@ -439,65 +406,59 @@ def main():
             logging.error(f"Error retrieving descendants: {e}")
             error_count += 1
             exit(1)
-    
+
     print(f"\n{'='*70}")
     print("PHASE 1: DISCOVERY - Analyzing metadata structure")
     print(f"{'='*70}")
     print(f"Scanning {len(descendants)} entities to discover all metadata fields...")
     print(f"  This may take a few moments depending on the number of entities...\n")
-    
+
     start_time = time.time()
     processed = 0
     errors_in_discovery = 0
-    
+    update_interval = 10 if len(descendants) < 1000 else 25
+
     for entity in descendants:
         try:
-            xml_string = client.metadata_for_entity(
-                entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-            max_counts = extract_dc_elements_and_update_header(
-                xml_string, max_counts)
-            # Also check ICAEW
-            icaew_xml = client.metadata_for_entity(
-                entity, 'https://www.icaew.com/metadata/')
-            max_counts = extract_icaew_elements_and_update_header(
-                icaew_xml, max_counts)
+            # Single all_metadata() call replaces two metadata_for_entity() calls,
+            # and the result is cached for reuse in Phase 2.
+            meta_list = fetch_and_cache_metadata(client, entity)
+            for schema, xml_string in meta_list:
+                if DC_SCHEMA in schema:
+                    max_counts = extract_dc_elements_and_update_header(xml_string, max_counts)
+                elif ICAEW_SCHEMA in schema or 'icaew' in schema.lower():
+                    max_counts = extract_icaew_elements_and_update_header(xml_string, max_counts)
             processed += 1
-            
-            # Show progress more frequently (every 10 entities, or every 25 for large datasets)
-            update_interval = 10 if len(descendants) < 1000 else 25
+
             if processed % update_interval == 0 or processed == len(descendants):
                 percentage = (processed / len(descendants)) * 100
                 elapsed = time.time() - start_time
-                if processed > 0:
-                    avg_time_per_entity = elapsed / processed
-                    remaining = (len(descendants) - processed) * avg_time_per_entity
-                    if remaining > 60:
-                        eta = f" (~{remaining/60:.1f} min remaining)"
-                    elif remaining > 0:
-                        eta = f" (~{remaining:.0f} sec remaining)"
-                    else:
-                        eta = ""
+                avg_time_per_entity = elapsed / processed
+                remaining = (len(descendants) - processed) * avg_time_per_entity
+                if remaining > 60:
+                    eta = f" (~{remaining/60:.1f} min remaining)"
+                elif remaining > 0:
+                    eta = f" (~{remaining:.0f} sec remaining)"
                 else:
                     eta = ""
                 print(f"  Progress: {processed}/{len(descendants)} entities ({percentage:.1f}%){eta}", end='\r', flush=True)
         except Exception as e:
-            logging.error(
-                f"Skipping entity {entity.reference} due to metadata error: {e}")
+            logging.error(f"Skipping entity {entity.reference} due to metadata error: {e}")
             error_count += 1
             errors_in_discovery += 1
-            processed += 1  # Count errors as processed to keep progress accurate
-    
+            _metadata_cache[entity.reference] = []  # Cache empty to avoid retry in Phase 2
+            processed += 1
+
     elapsed_time = time.time() - start_time
     final_percentage = (processed / len(descendants)) * 100 if len(descendants) > 0 else 100.0
     print(f"  Processed {processed}/{len(descendants)} entities ({final_percentage:.1f}%) in {elapsed_time:.1f} seconds.          ")
     if errors_in_discovery > 0:
         print(f"  ⚠️  {errors_in_discovery} entities had errors during discovery (check logs for details)")
-    
-    # Display discovered fields
+
     print(f"\nDiscovery complete. Found the following metadata fields:")
     dc_fields = {k: v for k, v in max_counts.items() if k.startswith('dc:')}
     icaew_fields = {k: v for k, v in max_counts.items() if k.startswith('icaew:')}
-    
+
     if dc_fields:
         print(f"\n  Dublin Core fields:")
         for field, count in sorted(dc_fields.items()):
@@ -505,7 +466,7 @@ def main():
                 print(f"    - {field}: {count} columns (repeating field)")
             else:
                 print(f"    - {field}: 1 column")
-    
+
     if icaew_fields:
         print(f"\n  ICAEW fields:")
         for field, count in sorted(icaew_fields.items()):
@@ -513,22 +474,26 @@ def main():
                 print(f"    - {field}: {count} columns (repeating field)")
             else:
                 print(f"    - {field}: 1 column")
-    
+
     extended_headers = []
     for field, count in max_counts.items():
         extended_headers.extend([field] * count)
-    
+
     total_metadata_columns = len(extended_headers)
     print(f"\n  Total metadata columns to be created: {total_metadata_columns}")
     print(f"{'='*70}\n")
 
     if args.new_template:
-        # Extract discovered ICAEW fields from max_counts
-        discovered_icaew_fields = [field for field in max_counts.keys() if field.startswith('icaew:')]
-        extended_headers = ['dc:title', 'dc:creator', 'dc:subject', 'dc:description', 'dc:publisher', 'dc:contributor', 'dc:date',
-                            'dc:type', 'dc:type', 'dc:format', 'dc:identifier', 'dc:source', 'dc:language', 'dc:relation', 'dc:coverage', 'dc:rights'] + discovered_icaew_fields
+        discovered_icaew_fields = [f for f in max_counts if f.startswith('icaew:')]
+        extended_headers = [
+            'dc:title', 'dc:creator', 'dc:subject', 'dc:description', 'dc:publisher',
+            'dc:contributor', 'dc:date', 'dc:type', 'dc:type', 'dc:format',
+            'dc:identifier', 'dc:source', 'dc:language', 'dc:relation',
+            'dc:coverage', 'dc:rights'
+        ] + discovered_icaew_fields
 
     csv_header.extend(extended_headers)
+    dc_start_column = 13 if args.algorithm == 'ALL' else 11
 
     logging.info(f"Opening {args.metadata_csv} for writing")
     print(f"{'='*70}")
@@ -537,344 +502,144 @@ def main():
     print(f"Output file: {args.metadata_csv}")
     print(f"Total columns: {len(csv_header)}")
     print(f"Writing CSV header...")
-    
+
     with open(args.metadata_csv, 'w', encoding='UTF8', newline='') as metadata_csv_file:
-        csv_writer = csv.writer(
-            metadata_csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        csv_writer = csv.writer(metadata_csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         csv_writer.writerow(csv_header)
 
         logging.info("Processing entities and writing to CSV")
         print(f"Processing {len(descendants)} entities and writing data...\n")
-        
+
         rows_written = 0
         entities_processed = 0
+
         for entity in descendants:
-            # Filter by entity type if specified
-            if args.entity_type == 'assets' and str(entity.entity_type) != 'EntityType.ASSET':
+            entity_type_str = str(entity.entity_type)
+            if args.entity_type == 'assets' and entity_type_str != 'EntityType.ASSET':
                 continue
-            elif args.entity_type == 'folders' and str(entity.entity_type) != 'EntityType.FOLDER':
+            elif args.entity_type == 'folders' and entity_type_str != 'EntityType.FOLDER':
                 continue
-            
-            # Get the properly instantiated asset/folder object
-            if str(entity.entity_type) == 'EntityType.FOLDER':
-                asset = client.folder(entity.reference)
-            elif str(entity.entity_type) == 'EntityType.ASSET':
-                asset = client.asset(entity.reference)
-            else:
-                continue
-                
-            # Count metadata fragments
-            total_fragments = 0
-            try:
-                if hasattr(client, 'all_metadata'):
-                    metadata_fragments = list(client.all_metadata(entity))
-                    total_fragments = len(metadata_fragments)
-                else:
-                    # Fallback: count fragments manually
-                    fragment_count = 0
-                    try:
-                        dc_xml = client.metadata_for_entity(entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-                        if dc_xml:
-                            fragment_count += 1
-                    except:
-                        pass
-                    try:
-                        icaew_xml = client.metadata_for_entity(entity, 'https://www.icaew.com/metadata/')
-                        if icaew_xml:
-                            fragment_count += 1
-                    except:
-                        pass
-                    total_fragments = fragment_count
-            except Exception as e:
-                logging.debug(f"Error counting fragments for {entity.reference}: {e}")
-                total_fragments = 0
-            
-            dc_values = defaultdict(list)
-            icaew_values = {}
-            # Get ICAEW metadata
-            try:
-                icaew_xml = client.metadata_for_entity(entity, 'https://www.icaew.com/metadata/')
-                if icaew_xml is not None:
-                    root = ET.fromstring(icaew_xml)
-                    # Extract all ICAEW fields - check both direct children and recursively for nested structures
-                    # First, try direct children (most common case for metadata schemas)
-                    for child in root:
-                        tag = child.tag.split('}')[-1]
-                        icaew_field = f"icaew:{tag}"
-                        # Get text content - for elements with children, get all text content
-                        if len(child) == 0:
-                            # Leaf element - use direct text
-                            text_content = child.text if child.text else ''
-                        else:
-                            # Element with children - collect all text from element and descendants
-                            text_parts = []
-                            if child.text and child.text.strip():
-                                text_parts.append(child.text.strip())
-                            # Get all text from descendants
-                            for descendant in child.iter():
-                                if descendant != child and descendant.text and descendant.text.strip():
-                                    text_parts.append(descendant.text.strip())
-                            text_content = ' '.join(text_parts).strip()
-                        if text_content or icaew_field not in icaew_values:
-                            icaew_values[icaew_field] = text_content
-                    # Also check recursively for any nested fields we might have missed
-                    # Track direct children to avoid reprocessing
-                    direct_children = set()
-                    for child in root:
-                        direct_children.add(id(child))
-                    for elem in root.iter():
-                        if elem == root:
-                            continue
-                        # Skip if we already processed this as a direct child
-                        if id(elem) in direct_children:
-                            continue
-                        tag = elem.tag.split('}')[-1]
-                        icaew_field = f"icaew:{tag}"
-                        # Only add if we haven't seen this field yet
-                        if icaew_field not in icaew_values:
-                            text_content = elem.text if elem.text else ''
-                            if text_content:
-                                icaew_values[icaew_field] = text_content.strip()
-            except Exception as e:
-                logging.error(f"Error extracting ICAEW metadata for {entity.reference}: {e}")
-            # Extract DC metadata
-            try:
-                xml_string = client.metadata_for_entity(
-                    entity, 'http://www.openarchives.org/OAI/2.0/oai_dc/')
-                if xml_string is not None:
-                    root = ET.fromstring(xml_string)
-                    for child in root:
-                        tag = child.tag.split('}')[-1]
-                        dc_field = f"dc:{tag}"
-                        if child.text:
-                            dc_values[dc_field].append(child.text)
-            except Exception:
-                pass
-            # Create base row data with asset info only
+
+            asset = get_cached_entity(client, entity)
+
+            logging.info(f"Getting metadata and checksum for assetID: {asset.reference}")
+
+            # Fragment count from cached all_metadata() results — no extra API call
+            total_fragments = len(_metadata_cache.get(entity.reference, []))
+
+            # Parse metadata from cache — no extra API calls
+            dc_xml, icaew_xml = get_cached_metadata(entity)
+            dc_values = parse_dc_values(dc_xml)
+            icaew_values = parse_icaew_values(icaew_xml)
+
             base_row_data = [
                 asset.reference, '', asset.entity_type,
-                asset.security_tag, asset.title, asset.description, get_full_preservica_path(client, entity)
+                asset.security_tag, asset.title, asset.description,
+                get_full_preservica_path(client, entity)
             ]
-            
-            # Prepare DC and ICAEW metadata separately
-            dc_icaew_data = []
-            if not args.new_template:
-                # Track how many times we've used each field for this row
-                field_usage = defaultdict(int)
-                # Determine the starting column for DC/ICAEW metadata based on algorithm mode
-                if args.algorithm == 'ALL':
-                    dc_start_column = 13  # After asset info (5) + checksums (3) + format fields (3) + fragment count (1)
-                else:
-                    dc_start_column = 11  # After asset info (7) + format fields (3) + fragment count (1)
-                
-                for header in csv_header[dc_start_column:]:  # Start from appropriate column
-                    if header.startswith('dc:'):
-                        value_list = dc_values[header]
-                        usage = field_usage[header]
-                        if usage < len(value_list):
-                            dc_icaew_data.append(value_list[usage])
-                        else:
-                            dc_icaew_data.append('')
-                        field_usage[header] += 1
-                    elif header.startswith('icaew:'):
-                        value = icaew_values.get(header, '')
-                        dc_icaew_data.append(value)
-                    else:
-                        dc_icaew_data.append('')
-            else:
-                # For new template, just add blanks for ICAEW fields
-                field_usage = defaultdict(int)
-                # Determine the starting column for DC/ICAEW metadata based on algorithm mode
-                if args.algorithm == 'ALL':
-                    dc_start_column = 13  # After asset info (5) + checksums (3) + format fields (3) + fragment count (1)
-                else:
-                    dc_start_column = 11  # After asset info (7) + format fields (3) + fragment count (1)
-                
-                for header in csv_header[dc_start_column:]:  # Start from appropriate column
-                    if header.startswith('icaew:'):
-                        value = icaew_values.get(header, '')
-                        dc_icaew_data.append(value)
-                    elif header.startswith('dc:'):
-                        value_list = dc_values[header]
-                        usage = field_usage[header]
-                        if usage < len(value_list):
-                            dc_icaew_data.append(value_list[usage])
-                        else:
-                            dc_icaew_data.append('')
-                        field_usage[header] += 1
-                    else:
-                        dc_icaew_data.append('')
-            
-            # Collect format and checksum information
-            # Separate original submitted files from derived files
+
+            dc_icaew_data = build_dc_icaew_row(csv_header, dc_start_column, dc_values, icaew_values)
+
             original_files = []
             derived_files = []
-            
+
             for representation in client.representations(entity):
-                # When original_only is True, only process Preservation representations
-                # (Access representations contain derived files like PDFs)
-                is_preservation = False
-                if args.original_only:
-                    rep_name = (getattr(representation, 'name', '') or '').lower()
-                    rep_type = (getattr(representation, 'type', '') or '').lower()
-                    if rep_name or rep_type:
-                        if 'preservation' not in rep_name and 'preservation' not in rep_type:
-                            continue  # Skip non-preservation representations
-                    # If no name/type, assume it's preservation (fall through)
-                    is_preservation = True
+                rep_name = (getattr(representation, 'name', '') or '').lower()
+                rep_type = (getattr(representation, 'type', '') or '').lower()
+                if rep_name or rep_type:
+                    is_preservation = 'preservation' in rep_name or 'preservation' in rep_type
                 else:
-                    # When --all-generations is used, check if this is preservation representation
-                    rep_name = (getattr(representation, 'name', '') or '').lower()
-                    rep_type = (getattr(representation, 'type', '') or '').lower()
-                    if rep_name or rep_type:
-                        if 'preservation' in rep_name or 'preservation' in rep_type:
-                            is_preservation = True
-                    else:
-                        is_preservation = True  # Assume preservation if no name/type
-                
+                    is_preservation = True
+
+                if args.original_only and not is_preservation:
+                    continue
+
                 for content_object in client.content_objects(representation):
                     try:
                         generations = list(client.generations(content_object))
-                        if generations:
-                            # By default, use only first generation (original submitted file)
-                            # Use --all-generations flag to process all generations including derived files
-                            if args.original_only:
-                                generations_to_process = [generations[0]]  # First generation only (original submitted)
-                            else:
-                                generations_to_process = generations  # All generations (including derived)
-                            
-                            for gen_index, generation in enumerate(generations_to_process):
-                                is_original_submitted = (is_preservation and gen_index == 0)
-                                
-                                for bitstream in generation.bitstreams:
-                                    if args.algorithm == 'ALL':
-                                        format_data = {
-                                            'filename': bitstream.filename,
-                                            'file_size': bitstream.length,  # Use length instead of file_size
-                                            'file_extension': extract_file_extension(bitstream.filename),
-                                            'md5_checksum': bitstream.fixity.get('MD5', ''),
-                                            'sha1_checksum': bitstream.fixity.get('SHA1', ''),
-                                            'sha256_checksum': bitstream.fixity.get('SHA256', '')
-                                        }
-                                    else:
-                                        format_data = {
-                                            'filename': bitstream.filename,
-                                            'file_size': bitstream.length,  # Use length instead of file_size
-                                            'file_extension': extract_file_extension(bitstream.filename),
-                                            'checksum': bitstream.fixity.get(args.algorithm, '') if args.algorithm in bitstream.fixity else ''
-                                        }
-                                    
-                                    # Separate original submitted files from derived files
-                                    if is_original_submitted:
-                                        original_files.append(format_data)
-                                    else:
-                                        derived_files.append(format_data)
+                        if not generations:
+                            continue
+                        generations_to_process = [generations[0]] if args.original_only else generations
+
+                        for gen_index, generation in enumerate(generations_to_process):
+                            is_original_submitted = is_preservation and gen_index == 0
+                            for bitstream in generation.bitstreams:
+                                if args.algorithm == 'ALL':
+                                    format_data = {
+                                        'filename': bitstream.filename,
+                                        'file_size': bitstream.length,
+                                        'file_extension': extract_file_extension(bitstream.filename),
+                                        'md5_checksum': bitstream.fixity.get('MD5', ''),
+                                        'sha1_checksum': bitstream.fixity.get('SHA1', ''),
+                                        'sha256_checksum': bitstream.fixity.get('SHA256', '')
+                                    }
+                                else:
+                                    format_data = {
+                                        'filename': bitstream.filename,
+                                        'file_size': bitstream.length,
+                                        'file_extension': extract_file_extension(bitstream.filename),
+                                        'checksum': bitstream.fixity.get(args.algorithm, '')
+                                    }
+                                (original_files if is_original_submitted else derived_files).append(format_data)
                     except Exception as e:
-                        logging.error(f"Error processing bitstream for {asset.title}: {e}")
+                        logging.error(f"Error processing asset {asset.title}: {e}")
                         error_count += 1
-            
-            # Combine: original files first, then derived files
+
             format_checksum_data = original_files + derived_files
-            
-            # Write rows for format and checksum data
+
             if format_checksum_data:
+                first = format_checksum_data[0]
                 if args.algorithm == 'ALL':
-                    # Write first row with all metadata and format info (original file is always first)
-                    first_format_data = format_checksum_data[0]
-                    complete_row = [base_row_data[0]]  # assetId
-                    complete_row.extend([
-                        first_format_data['md5_checksum'],
-                        first_format_data['sha1_checksum'], 
-                        first_format_data['sha256_checksum']
-                    ])  # All checksums (columns 1-3)
-                    complete_row.extend(base_row_data[2:7])  # entity_type, security_tag, title, description, path (columns 4-8)
-                    complete_row.extend([
-                        first_format_data['filename'],
-                        first_format_data['file_size'],
-                        first_format_data['file_extension'],
-                        total_fragments  # Fragment count (column 13)
-                    ])  # Format data + fragment count (columns 9-13)
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 14+) - only for first row (original file)
+                    complete_row = [base_row_data[0],
+                                    first['md5_checksum'], first['sha1_checksum'], first['sha256_checksum']]
+                    complete_row.extend(base_row_data[2:7])
+                    complete_row.extend([first['filename'], first['file_size'], first['file_extension'], total_fragments])
+                    complete_row.extend(dc_icaew_data)
                     csv_writer.writerow(complete_row)
                     rows_written += 1
-                    
-                    # Write additional rows with only checksums and format info (for multiple files)
-                    for format_data in format_checksum_data[1:]:
-                        # Create row with only asset ID, checksums, and format data
-                        blank_row = [base_row_data[0]]  # assetId
-                        blank_row.extend([
-                            format_data['md5_checksum'],
-                            format_data['sha1_checksum'],
-                            format_data['sha256_checksum']
-                        ])  # All checksums
-                        blank_row.extend(['', '', '', '', ''])  # entity_type, security_tag, title, description, path (empty)
-                        blank_row.extend([
-                            format_data['filename'],
-                            format_data['file_size'],
-                            format_data['file_extension'],
-                            total_fragments  # Fragment count (column 13)
-                        ])  # Format data + fragment count
-                        blank_row.extend([''] * len(dc_icaew_data))  # Empty DC/ICAEW fields
+
+                    for fd in format_checksum_data[1:]:
+                        blank_row = [base_row_data[0],
+                                     fd['md5_checksum'], fd['sha1_checksum'], fd['sha256_checksum'],
+                                     '', '', '', '', '']
+                        blank_row.extend([fd['filename'], fd['file_size'], fd['file_extension'], total_fragments])
+                        blank_row.extend([''] * len(dc_icaew_data))
                         csv_writer.writerow(blank_row)
                         rows_written += 1
                 else:
-                    # Single algorithm mode
-                    # Write first row with all metadata and format info (original file is always first)
-                    first_format_data = format_checksum_data[0]
-                    base_row_data[1] = first_format_data['checksum']  # checksum
-                    complete_row = base_row_data[:7]  # Asset info (first 7 columns including path)
-                    complete_row.extend([
-                        first_format_data['filename'],
-                        first_format_data['file_size'],
-                        first_format_data['file_extension'],
-                        total_fragments  # Fragment count (column 11)
-                    ])  # Format data + fragment count (columns 7-11)
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 12+) - only for first row (original file)
+                    base_row_data[1] = first['checksum']
+                    complete_row = base_row_data[:7]
+                    complete_row.extend([first['filename'], first['file_size'], first['file_extension'], total_fragments])
+                    complete_row.extend(dc_icaew_data)
                     csv_writer.writerow(complete_row)
                     rows_written += 1
-                    
-                    # Write additional rows with only checksum and format info (for multiple files)
-                    for format_data in format_checksum_data[1:]:
-                        # Create row with only asset ID, checksum, and format data
-                        blank_row = [base_row_data[0]]  # assetId
-                        blank_row.append(format_data['checksum'])  # checksum
-                        blank_row.extend(['', '', '', '', ''])  # entity_type, security_tag, title, description, path (empty)
-                        blank_row.extend([
-                            format_data['filename'],
-                            format_data['file_size'],
-                            format_data['file_extension'],
-                            total_fragments  # Fragment count (column 11)
-                        ])  # Format data + fragment count
-                        blank_row.extend([''] * len(dc_icaew_data))  # Empty DC/ICAEW fields
+
+                    for fd in format_checksum_data[1:]:
+                        blank_row = [base_row_data[0], fd['checksum'], '', '', '', '', '']
+                        blank_row.extend([fd['filename'], fd['file_size'], fd['file_extension'], total_fragments])
+                        blank_row.extend([''] * len(dc_icaew_data))
                         csv_writer.writerow(blank_row)
                         rows_written += 1
             else:
-                # If no format data found, write the row with empty format fields
                 if args.algorithm == 'ALL':
-                    complete_row = [base_row_data[0]]  # assetId
-                    complete_row.extend(['', '', ''])  # Empty checksums (MD5, SHA1, SHA256)
-                    complete_row.extend(base_row_data[2:7])  # entity_type, security_tag, title, description, path
-                    complete_row.extend(['', '', '', total_fragments])  # Empty format fields + fragment count
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata
-                    csv_writer.writerow(complete_row)
-                    rows_written += 1
+                    complete_row = [base_row_data[0], '', '', '']
+                    complete_row.extend(base_row_data[2:7])
+                    complete_row.extend(['', '', '', total_fragments])
+                    complete_row.extend(dc_icaew_data)
                 else:
-                    complete_row = base_row_data[:7]  # Asset info (first 7 columns including path)
-                    complete_row.extend(['', '', '', total_fragments])  # Empty format fields + fragment count (columns 7-11)
-                    complete_row.extend(dc_icaew_data)  # DC/ICAEW metadata (columns 12+)
-                    csv_writer.writerow(complete_row)
-                    rows_written += 1
-            
+                    complete_row = base_row_data[:7]
+                    complete_row.extend(['', '', '', total_fragments])
+                    complete_row.extend(dc_icaew_data)
+                csv_writer.writerow(complete_row)
+                rows_written += 1
+
             entities_processed += 1
             if entities_processed % 25 == 0:
                 print(f"  Processed {entities_processed}/{len(descendants)} entities, written {rows_written} rows...", end='\r')
 
     print(f"  Processed {entities_processed}/{len(descendants)} entities, written {rows_written} rows.          ")
-    
-    logging.info(
-        f"Metadata and checksums have been written to {args.metadata_csv}")
+    logging.info(f"Metadata and checksums have been written to {args.metadata_csv}")
 
-    # Final summary
     print(f"\n{'='*70}")
     print("EXTRACTION COMPLETE")
     print(f"{'='*70}")
@@ -882,8 +647,7 @@ def main():
     print(f"Total entities processed: {entities_processed}")
     print(f"Total rows written: {rows_written}")
     print(f"Total columns: {len(csv_header)}")
-    
-    # Final error summary
+
     if error_count > 0:
         print(f"\n⚠️  {error_count} errors occurred. Check '{log_file}' for details.")
     else:
