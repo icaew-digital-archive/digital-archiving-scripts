@@ -2,11 +2,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Move assets in Preservica to a specified folder.
+Move assets or folders in Preservica to a specified folder.
 
-This script can move assets in two ways:
+Assets:
 - A single asset (--asset)
 - Multiple assets (--assets-file)
+
+Folders (same client.move() as assets; see pyPreservica entity docs):
+- A single folder (--folder)
+- Multiple folders (--folders-file)
 
 Examples:
     # Move a single asset to a folder
@@ -14,6 +18,12 @@ Examples:
 
     # Move multiple assets listed in a file
     python move_preservica_assets.py --assets-file "asset_list.txt" --destination "folder-id"
+
+    # Move a folder under another folder
+    python move_preservica_assets.py --folder "folder-id-to-move" --destination "parent-folder-id"
+
+    # Move many folders (one reference per line)
+    python move_preservica_assets.py --folders-file "folder_list.txt" --destination "parent-folder-id"
 
     # Skip confirmation prompts (use with caution!)
     python move_preservica_assets.py --asset "asset-id" --destination "folder-id" --force
@@ -69,14 +79,13 @@ def setup_logging(log_dir=None):
     return log_file
 
 
-def read_asset_list(file_path):
-    """Read asset IDs from a file, one per line."""
+def read_reference_list(file_path):
+    """Read Preservica reference IDs from a file, one per line."""
     try:
         with open(file_path, 'r') as f:
-            # Strip whitespace and filter out empty lines
             return [line.strip() for line in f if line.strip()]
     except Exception as e:
-        logging.error(f"Error reading asset list file: {e}", exc_info=True)
+        logging.error(f"Error reading reference list file: {e}", exc_info=True)
         raise
 
 
@@ -110,6 +119,23 @@ def get_folder_info(client, folder_ref):
         return None
 
 
+def get_folder_move_source_info(client, folder_ref):
+    """Load a folder object and metadata for moving (mirrors get_asset_info)."""
+    try:
+        folder = client.folder(folder_ref)
+        return {
+            'reference': folder.reference,
+            'title': getattr(folder, 'title', 'No title available'),
+            'security_tag': getattr(folder, 'security_tag', 'No security tag available'),
+            'parent': getattr(folder, 'parent', 'No parent folder available'),
+            'path': getattr(folder, 'path', 'No path available'),
+            'folder': folder,
+        }
+    except Exception as e:
+        logging.error(f"Error getting folder info for {folder_ref}: {e}")
+        return None
+
+
 def confirm_move(asset_info, destination_info):
     """Display asset and destination information and prompt for confirmation."""
     print("\nAsset to be moved:")
@@ -123,6 +149,23 @@ def confirm_move(asset_info, destination_info):
     print(f"Path: {destination_info['path']}")
     
     response = input("\nAre you sure you want to move this asset? (yes/no): ").lower()
+    return response == 'yes'
+
+
+def confirm_move_folder(folder_info, destination_info):
+    """Display folder and destination information and prompt for confirmation."""
+    print("\nFolder to be moved:")
+    print(f"Reference: {folder_info['reference']}")
+    print(f"Title: {folder_info['title']}")
+    print(f"Security Tag: {folder_info['security_tag']}")
+    print(f"Current Path: {folder_info['path']}")
+    print(f"Current Parent: {folder_info['parent']}")
+    print(f"\nDestination folder:")
+    print(f"Reference: {destination_info['reference']}")
+    print(f"Title: {destination_info['title']}")
+    print(f"Path: {destination_info['path']}")
+
+    response = input("\nAre you sure you want to move this folder? (yes/no): ").lower()
     return response == 'yes'
 
 
@@ -175,8 +218,44 @@ def move_asset(client, asset_ref, destination_ref, force=False, skip_confirmatio
         return False
 
 
+def move_folder(client, folder_ref, destination_ref, force=False, skip_confirmation=False):
+    """Move a folder under destination_ref using client.move(folder, dest_folder)."""
+    if folder_ref == destination_ref:
+        logging.error("Source folder and destination folder are the same reference")
+        return False
+    try:
+        folder_info = get_folder_move_source_info(client, folder_ref)
+        destination_info = get_folder_info(client, destination_ref)
+
+        if not folder_info:
+            logging.error(f"Could not get information for folder {folder_ref}")
+            return False
+        if not destination_info:
+            logging.error(f"Could not get information for destination folder {destination_ref}")
+            return False
+
+        if not force and not skip_confirmation and not confirm_move_folder(folder_info, destination_info):
+            logging.info(f"Skipping move of folder {folder_ref}")
+            return True
+
+        logging.info(f"Moving folder {folder_ref} to folder {destination_ref}")
+        try:
+            folder = folder_info['folder']
+            dest_folder = client.folder(destination_ref)
+            client.move(folder, dest_folder)
+            logging.info(f"Successfully moved folder {folder_ref} to folder {destination_ref}")
+            return True
+        except Exception as move_error:
+            logging.error(f"Error moving folder {folder_ref}: {move_error}")
+            return False
+
+    except Exception as e:
+        logging.error(f"Error processing folder {folder_ref}: {e}", exc_info=True)
+        return False
+
+
 def main(args):
-    """Main function to handle asset moves based on command line arguments."""
+    """Main function to handle asset and folder moves based on command line arguments."""
     # Setup logging first
     log_file = setup_logging(args.log_dir)
     logging.info(f"Starting move process. Log file: {log_file}")
@@ -200,7 +279,7 @@ def main(args):
         logging.error(f"Destination folder {args.destination} not found or not accessible")
         sys.exit(1)
     
-    logging.info(f"Moving assets to folder: {destination_info['title']} ({destination_info['path']})")
+    logging.info(f"Destination folder: {destination_info['title']} ({destination_info['path']})")
 
     error_count = 0
     start_time = datetime.now()
@@ -211,34 +290,64 @@ def main(args):
                 error_count += 1
 
         elif args.assets_file:
-            asset_ids = read_asset_list(args.assets_file)
+            asset_ids = read_reference_list(args.assets_file)
             total_assets = len(asset_ids)
             successful_moves = 0
-            
+
             logging.info(f"Found {total_assets} assets to process")
-            
-            # If not in force mode, show summary and get confirmation
+
             if not args.force:
                 print(f"\nFound {total_assets} assets to move to folder: {destination_info['title']}")
                 for asset_id in asset_ids:
                     asset_info = get_asset_info(client, asset_id)
                     if asset_info:
                         print(f"- {asset_info['reference']}: {asset_info['title']} (from {asset_info['parent']})")
-                
+
                 response = input(f"\nAre you sure you want to move these {total_assets} assets? (yes/no): ").lower()
                 if response != 'yes':
                     logging.info("Bulk move cancelled by user")
                     sys.exit(0)
-            
+
             for i, asset_id in enumerate(asset_ids, 1):
                 logging.info(f"Processing asset {i}/{total_assets}: {asset_id}")
-                # Skip individual confirmations when using assets-file
                 if move_asset(client, asset_id, args.destination, args.force, skip_confirmation=True):
                     successful_moves += 1
                 else:
                     error_count += 1
-            
+
             logging.info(f"Successfully moved {successful_moves} out of {total_assets} assets")
+
+        elif args.folder:
+            if not move_folder(client, args.folder, args.destination, args.force):
+                error_count += 1
+
+        elif args.folders_file:
+            folder_ids = read_reference_list(args.folders_file)
+            total_folders = len(folder_ids)
+            successful_moves = 0
+
+            logging.info(f"Found {total_folders} folders to process")
+
+            if not args.force:
+                print(f"\nFound {total_folders} folders to move to folder: {destination_info['title']}")
+                for folder_id in folder_ids:
+                    finfo = get_folder_move_source_info(client, folder_id)
+                    if finfo:
+                        print(f"- {finfo['reference']}: {finfo['title']} ({finfo['path']})")
+
+                response = input(f"\nAre you sure you want to move these {total_folders} folders? (yes/no): ").lower()
+                if response != 'yes':
+                    logging.info("Bulk folder move cancelled by user")
+                    sys.exit(0)
+
+            for i, folder_id in enumerate(folder_ids, 1):
+                logging.info(f"Processing folder {i}/{total_folders}: {folder_id}")
+                if move_folder(client, folder_id, args.destination, args.force, skip_confirmation=True):
+                    successful_moves += 1
+                else:
+                    error_count += 1
+
+            logging.info(f"Successfully moved {successful_moves} out of {total_folders} folders")
 
     except KeyboardInterrupt:
         logging.warning("\nMove process interrupted by user")
@@ -259,21 +368,24 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Move assets in Preservica to a specified folder.",
+        description="Move assets or folders in Preservica under a destination folder.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__)
 
-    # Create a group for the mutually exclusive asset specification options
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--asset',
                        help='Single Preservica asset ID to move')
     group.add_argument('--assets-file',
                        help='Path to a text file containing Preservica asset IDs to move (one per line)')
+    group.add_argument('--folder',
+                       help='Single Preservica folder ID to move')
+    group.add_argument('--folders-file',
+                       help='Path to a text file containing Preservica folder IDs to move (one per line)')
 
     # Required arguments
     parser.add_argument('--destination',
                        required=True,
-                       help='Preservica folder ID where assets will be moved to')
+                       help='Preservica folder ID of the destination parent folder')
 
     # Optional arguments
     parser.add_argument('--log-dir',

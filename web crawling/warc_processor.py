@@ -26,8 +26,8 @@ Options
 --verbose, -v: Enable verbose logging
 --debug: Enable debug logging
 --keep-temp: Keep temporary combined WARC file
---no-detect-pages: Disable page detection
---text-index: Generate full-text search index
+--detect-pages: Enable/disable page detection (default: True). Use --detect-pages False to disable.
+--text-index: Generate full-text search index (requires --detect-pages)
 
 Dependencies: warcio, wacz
 Install: pip install warcio wacz
@@ -98,7 +98,9 @@ class WARCProcessor:
         
         if self.input_path.is_file():
             # Single WARC file
-            if self.input_path.suffix.lower() in ['.warc', '.warc.gz']:
+            # Check if file ends with .warc or .warc.gz
+            name_lower = self.input_path.name.lower()
+            if name_lower.endswith('.warc.gz') or name_lower.endswith('.warc'):
                 warc_files.append(self.input_path)
             else:
                 raise ValueError(f"Input file is not a WARC file: {self.input_path}")
@@ -168,20 +170,33 @@ class WARCProcessor:
             detect_pages (bool): Whether to detect pages and generate pages.jsonl
             text_index (bool): Whether to generate full-text search index
         """
-        self.logger.info(f"Converting WARC to WACZ: {warc_path} -> {self.output_path}")
+        # Convert to absolute paths
+        warc_path = warc_path.resolve()
+        output_path = self.output_path.resolve()
+        
+        # Verify WARC file exists
+        if not warc_path.exists():
+            raise FileNotFoundError(f"WARC file does not exist: {warc_path}")
+        
+        self.logger.info(f"Converting WARC to WACZ: {warc_path} -> {output_path}")
         
         try:
-            # Build wacz command
-            cmd = ['wacz', 'create', '-o', str(self.output_path)]
-            
+            # Build wacz command. Some wacz installs expose a top-level
+            # CLI (usage: `wacz [options] inputs`) rather than a
+            # `wacz create` subcommand. Call the simpler form which is
+            # compatible with both common variants when used with options
+            # before the input path.
+            cmd = ['wacz', '-o', str(output_path)]
+
             # Add options based on parameters
             if detect_pages:
                 cmd.append('--detect-pages')
-            
+
             if text_index:
-                cmd.append('--text')
-            
-            # Add the WARC file
+                # the CLI accepts short -t for text/indexing
+                cmd.append('-t')
+
+            # Add the WARC file as the input (positional) - use absolute path
             cmd.append(str(warc_path))
             
             self.logger.debug(f"Running command: {' '.join(cmd)}")
@@ -200,7 +215,7 @@ class WARCProcessor:
                 self.logger.error(f"stderr: {result.stderr}")
                 raise Exception(f"wacz command failed: {result.stderr}")
             
-            self.logger.info(f"WACZ file created successfully: {self.output_path}")
+            self.logger.info(f"WACZ file created successfully: {output_path}")
             if result.stdout:
                 self.logger.debug(f"wacz output: {result.stdout}")
             
@@ -266,8 +281,8 @@ Examples:
   # Verbose logging with text index
   python warc_processor.py --input "/path/to/warc/files" --output "output.wacz" --verbose --text-index
   
-  # Without page detection
-  python warc_processor.py --input "/path/to/warc/files" --output "output.wacz" --no-detect-pages
+  # Disable page detection
+  python warc_processor.py --input "/path/to/warc/files" --output "output.wacz" --detect-pages False
         """
     )
     
@@ -301,10 +316,24 @@ Examples:
         help='Keep temporary combined WARC file'
     )
     
+    def str_to_bool(v):
+        """Convert string to boolean for argparse."""
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+    
     parser.add_argument(
-        '--no-detect-pages',
-        action='store_true',
-        help='Disable page detection and pages.jsonl generation'
+        '--detect-pages',
+        type=str_to_bool,
+        nargs='?',
+        const=True,
+        default=True,
+        help='Enable/disable page detection and pages.jsonl generation (default: True). Use --detect-pages False to disable.'
     )
     
     parser.add_argument(
@@ -333,7 +362,7 @@ Examples:
         
         processor.process(
             cleanup_temp=not args.keep_temp,
-            detect_pages=not args.no_detect_pages,
+            detect_pages=args.detect_pages,
             text_index=args.text_index
         )
         

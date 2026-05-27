@@ -548,7 +548,7 @@ class CSVValidator:
         valid_extensions = {
             'pdf', 'docx', 'doc', 'xlsx', 'xls', 'txt', 'srt', 'jpg', 'jpeg', 
             'png', 'tiff', 'tif', 'gif', 'bmp', 'mp4', 'avi', 'mov', 'mp3', 
-            'wav', 'html', 'htm', 'xml', 'json', 'csv'
+            'wav', 'html', 'htm', 'xml', 'json', 'csv', 'wacz'
         }
         
         if format_value not in valid_extensions:
