@@ -37,30 +37,52 @@ DCMI_TYPES = {
 }
 
 ICAEW_CONTENT_TYPES = {
-    "Annual report", "Article", "Biographical profile", "Committee papers",
-    "Company profile", "Course", "Database", "eBook", "eBook chapter",
-    "eLearning module", "Event", "Form", "Helpsheets and support", "Hub page",
-    "ICAEW consultation and response", "Industry profile", "Internal ICAEW policy",
-    "Interview", "Journal", "Learning material", "Legal precedent", "Library book",
-    "Library journal", "Listing", "Member reward", "Minutes and board papers",
-    "Newsletter", "No content type", "Podcast", "Press release",
-    "Promotional material", "Regional news", "Regulations", "Report",
-    "Representation", "Research guide", "Speech or presentation", "Synopsis",
-    "Technical release", "Thought leadership report", "Transcript", "Video",
-    "Webinar", "Website",
+    "Annual report", "Article", "Biographical profile", "Company profile",
+    "Course", "Database", "eBook", "eBook chapter", "Event", "Form",
+    "Helpsheets and support", "Hub page", "ICAEW consultation and response",
+    "Industry profile", "Internal ICAEW policy", "Journal", "Learning material",
+    "Legal precedent", "Library book", "Library journal", "Listing",
+    "Member reward", "Minutes and board papers", "Newsletter", "No content type",
+    "Podcast", "Press release", "Promotional material", "Regional news",
+    "Regulations", "Report", "Representation", "Research guide",
+    "Speech or presentation", "Technical release", "Thought leadership report",
+    "Transcript", "Video", "Webinar", "Website",
 }
 
-# Common American English spellings that should be British in ICAEW metadata
+# American English spellings that should be British — derived from icaew.yaml profile
 AMERICAN_SPELLINGS = re.compile(
-    r'\b(organiz|recogniz|analyz|optimiz|prioritiz|finaliz|summaris(?:e->ize)|'
-    r'standardiz|minimiz|maximiz|realiz|specialis(?:e->ize)|authoriz|categori[sz]e|'
-    r'\bcolor\b|\bcolors\b|\bcenter\b|\bcenters\b|\bdefense\b|\boffense\b|'
-    r'\bbehavior\b|\bbehaviors\b|\bhonor\b|\blabor\b|\bfavor\b|\bharbor\b|'
-    r'\bneighbor\b|\banalog\b|\bcatalog\b|\bdialog\b|\bprogram\b(?!me)|'
-    r'\benrollment\b|\bfulfill\b|\bskillful\b|\btraveled\b|\bcanceled\b|'
-    r'\blabeled\b|\bmodeling\b|\btraveling\b|\bjewelry\b|\bgray\b|\bcheck\b)',
+    r'\b('
+    # -ize verbs (should be -ise)
+    r'organiz|recogniz|analyz|optimiz|prioritiz|finaliz|summariz|standardiz|'
+    r'minimiz|maximiz|realiz|specializ|authoriz|categoriz|characteriz|emphasiz|'
+    r'criticiz|apologiz|memoriz|visualiz'
+    r'|'
+    # -or endings (should be -our)
+    r'color|behavior|honor|labor|favor|harbor|neighbor'
+    r'|'
+    # -er endings (should be -re)
+    r'center|centers'
+    r'|'
+    # -ense endings (should be -ence)
+    r'defense|offense'
+    r'|'
+    # -og endings (should be -ogue)
+    r'catalog|dialog|analog'
+    r'|'
+    # -gram (should be programme when schedule/plan — flag conservatively)
+    r'program(?!me)'
+    r'|'
+    # double-l / single-l differences
+    r'enrollment|fulfill|skillful|traveled|canceled|labeled|modeled|modeled|'
+    r'modeling|traveling|counselor|counseled'
+    r'|'
+    # specific words
+    r'jewelry|gray|maneuver|skeptical|pajamas'
+    r')\b',
     re.IGNORECASE,
 )
+
+ISO_DATE_IN_TITLE = re.compile(r'\b\d{4}-\d{2}-\d{2}\b')
 
 # Valid identifier patterns: ISBN, full URL, or ICAEW reference code
 IDENTIFIER_PATTERN = re.compile(
@@ -293,6 +315,16 @@ def score_asset(row: dict[str, list[str]], valid_subjects: set[str]) -> tuple[in
     bad_ids = [i for i in vals(row, "dc:identifier") if not IDENTIFIER_PATTERN.match(i)]
     if bad_ids:
         flags.append("suspect_identifiers:" + "|".join(bad_ids[:3]))
+
+    # Description must end with . or ? before the AI suffix
+    if dc_desc and dc_desc.endswith("(AI generated description)"):
+        text_before_suffix = dc_desc[: dc_desc.rfind("(AI generated description)")].strip()
+        if text_before_suffix and not (text_before_suffix.endswith(".") or text_before_suffix.endswith("?")):
+            flags.append("description_missing_period_before_ai_suffix")
+
+    # Title should not contain ISO date format (use readable dates instead)
+    if dc_title and ISO_DATE_IN_TITLE.search(dc_title):
+        flags.append("title_contains_iso_date")
 
     # American English in description and title
     for field_name, text in [("desc", dc_desc), ("title", dc_title)]:
