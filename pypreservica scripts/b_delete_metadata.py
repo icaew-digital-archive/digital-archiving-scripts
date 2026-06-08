@@ -97,7 +97,7 @@ def delete_entity_metadata_all_schemas(client, entity_id):
         logging.error(f"Failed to delete metadata for {entity_id}: {e}")
         return False, None
 
-def delete_from_csv(client, csv_file):
+def delete_from_csv(client, csv_file, auto_confirm=False):
     asset_ids = read_entities_from_csv(csv_file)
     total = len(asset_ids)
     logging.info(f"Found {total} entities to process from CSV.")
@@ -126,25 +126,26 @@ def delete_from_csv(client, csv_file):
         print(f"{eid:<40} {etype:<8} {title}")
     print("-" * 80)
 
-    confirmation = input(f"Are you sure you want to delete metadata for these {total} entities? (Y/N): ").strip().lower()
-    if confirmation != 'y':
-        logging.info("Operation cancelled by user")
-        return
+    if not auto_confirm:
+        confirmation = input(f"Are you sure you want to delete metadata for these {total} entities? (Y/N): ").strip().lower()
+        if confirmation != 'y':
+            logging.info("Operation cancelled by user")
+            return
+
     success, fail = 0, 0
     for i, (entity_id, entity_type, _) in enumerate(entity_summaries, 1):
         if entity_type == 'unknown':
             fail += 1
             continue
-        logging.info(f"Processing entity {i}/{total}: {entity_id}")
+        logging.info(f"[{i}/{total}] Deleting metadata for {entity_type}: {entity_id}")
         ok, _ = delete_entity_metadata_all_schemas(client, entity_id)
         if ok:
             success += 1
-            logging.info(f"Successfully deleted all metadata for {entity_type}: {entity_id}")
         else:
             fail += 1
     logging.info(f"Metadata deletion completed: {success} succeeded, {fail} failed.")
 
-def delete_from_folder(client, folder_ref):
+def delete_from_folder(client, folder_ref, auto_confirm=False):
     descendants = list(client.all_descendants(folder_ref))
     total = len(descendants)
     # Prepare summary
@@ -166,16 +167,18 @@ def delete_from_folder(client, folder_ref):
         print(f"{eid:<40} {etype:<8} {title}")
     print("-" * 80)
 
-    confirmation = input(f'Are you sure you want to delete the metadata for these {total} entities? (Y/N): ').strip().lower()
-    if confirmation != 'y':
-        logging.info("Operation cancelled by user")
-        return
+    if not auto_confirm:
+        confirmation = input(f'Are you sure you want to delete the metadata for these {total} entities? (Y/N): ').strip().lower()
+        if confirmation != 'y':
+            logging.info("Operation cancelled by user")
+            return
+
     success, fail = 0, 0
     for i, (entity_id, entity_type, _) in enumerate(entity_summaries, 1):
         if entity_type == 'unknown':
             fail += 1
             continue
-        logging.info(f"Deleting metadata for {entity_type} {i}/{total}: {entity_id}")
+        logging.info(f"[{i}/{total}] Deleting metadata for {entity_type}: {entity_id}")
         ok, _ = delete_entity_metadata_all_schemas(client, entity_id)
         if ok:
             success += 1
@@ -189,6 +192,7 @@ def main():
     group.add_argument('--csv-file', help='Path to CSV file containing assetId and entity.entity_type columns')
     group.add_argument('--preservica-folder-ref', help='Preservica folder reference (delete all descendants)')
     parser.add_argument('--log-dir', help='Directory to store log files (default: current directory)')
+    parser.add_argument('--yes', action='store_true', help='Skip confirmation prompt (used by the Streamlit app)')
     args = parser.parse_args()
     
     # Create backward-compatible attribute names for existing code
@@ -204,9 +208,9 @@ def main():
     client = EntityAPI(username=USERNAME, password=PASSWORD, tenant=TENANT, server=SERVER)
     try:
         if args.csv_file:
-            delete_from_csv(client, args.csv_file)
+            delete_from_csv(client, args.csv_file, auto_confirm=args.yes)
         elif args.preservica_folder_ref:
-            delete_from_folder(client, args.preservica_folder_ref)
+            delete_from_folder(client, args.preservica_folder_ref, auto_confirm=args.yes)
     except KeyboardInterrupt:
         logging.warning("\nProcess interrupted by user")
     except Exception as e:

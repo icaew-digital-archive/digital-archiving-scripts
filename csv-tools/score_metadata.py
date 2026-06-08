@@ -153,7 +153,7 @@ def load_valid_subjects() -> set[str]:
     """
     url = (
         "https://raw.githubusercontent.com/icaew-digital-archive/"
-        "metadata-extraction/refs/heads/main/topic_list.txt"
+        "metadata-extraction/refs/heads/main/profiles/topic_list.txt"
     )
     try:
         with urllib.request.urlopen(url, timeout=15) as resp:
