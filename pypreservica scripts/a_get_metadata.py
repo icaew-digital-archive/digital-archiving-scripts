@@ -484,13 +484,18 @@ def main():
     print(f"{'='*70}\n")
 
     if args.new_template:
-        discovered_icaew_fields = [f for f in max_counts if f.startswith('icaew:')]
+        required_icaew = ['icaew:ContentType', 'icaew:InternalReference', 'icaew:Notes']
+        required_icaew_lower = {f.lower() for f in required_icaew}
+        extra_icaew = list(dict.fromkeys(
+            f for f in max_counts
+            if f.startswith('icaew:') and f.lower() not in required_icaew_lower
+        ))
         extended_headers = [
             'dc:title', 'dc:creator', 'dc:subject', 'dc:description', 'dc:publisher',
             'dc:contributor', 'dc:date', 'dc:type', 'dc:type', 'dc:format',
             'dc:identifier', 'dc:source', 'dc:language', 'dc:relation',
-            'dc:coverage', 'dc:rights'
-        ] + discovered_icaew_fields
+            'dc:coverage', 'dc:rights',
+        ] + required_icaew + extra_icaew
 
     csv_header.extend(extended_headers)
     dc_start_column = 13 if args.algorithm == 'ALL' else 11
