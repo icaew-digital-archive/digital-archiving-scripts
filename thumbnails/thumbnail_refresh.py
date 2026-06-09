@@ -133,8 +133,7 @@ def main(args):
         logger.info(f"Walking from: {root.title} ({root.reference})")
     else:
         root = None
-        if args.folder:
-            logger.info("Walking from repository root...")
+        logger.info("Walking from repository root...")
 
     process_entities(
         client,
