@@ -6,7 +6,7 @@ In Preservica's NGI and Portal interfaces, folders inherit thumbnails from their
 
 | Problem | Fix |
 |:---:|:---:|
-| ![Folder inheriting an asset thumbnail](problem.png) | ![Standard folder icon](folder_10x7.png) |
+| ![Folder inheriting an asset thumbnail](problem.png) | ![Standard folder icon](fixed.png) |
 | Folder displays a child asset's thumbnail | Folder displays a clear, recognisable folder icon |
 
 This script is a workaround for that behaviour. It replaces thumbnails on all Preservica folders with a standard folder icon, ensuring folders are always visually distinct. It is designed to run on a cron schedule so that new folders are picked up and updated automatically over time.
