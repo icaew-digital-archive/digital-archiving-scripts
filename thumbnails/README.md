@@ -54,6 +54,9 @@ python3 thumbnail_refresh.py --dry-run
 
 # Use a custom thumbnail image
 python3 thumbnail_refresh.py --thumbnail /path/to/image.png
+
+# Set a custom wait time between remove and add API calls (default: 30 seconds)
+python3 thumbnail_refresh.py --wait 60
 ```
 
 ## Deployment

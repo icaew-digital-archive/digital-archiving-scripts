@@ -63,10 +63,10 @@ def mark_processed(tracking_file: Path, reference: str):
         f.write(reference + '\n')
 
 
-def refresh_thumbnail(client, folder, thumbnail_path: str, dry_run: bool = False):
+def refresh_thumbnail(client, folder, thumbnail_path: str, wait: int = THUMBNAIL_WAIT_SECONDS, dry_run: bool = False):
     logger.info(f"Processing: {folder.title} ({folder.reference})")
     if dry_run:
-        logger.info(f"  [DRY RUN] Would remove thumbnail, wait {THUMBNAIL_WAIT_SECONDS}s, add thumbnail")
+        logger.info(f"  [DRY RUN] Would remove thumbnail, wait {wait}s, add thumbnail")
         return
 
     try:
@@ -75,8 +75,8 @@ def refresh_thumbnail(client, folder, thumbnail_path: str, dry_run: bool = False
     except Exception as e:
         logger.info(f"  No thumbnail to remove ({e})")
 
-    logger.info(f"  Waiting {THUMBNAIL_WAIT_SECONDS}s before re-adding...")
-    time.sleep(THUMBNAIL_WAIT_SECONDS)
+    logger.info(f"  Waiting {wait}s before re-adding...")
+    time.sleep(wait)
 
     try:
         client.add_thumbnail(folder, thumbnail_path)
@@ -95,7 +95,7 @@ def iter_folders(client, start):
             yield e
 
 
-def process_entities(client, entities, tracking_file, thumbnail, dry_run):
+def process_entities(client, entities, tracking_file, thumbnail, wait, dry_run):
     processed = load_processed(tracking_file)
     logger.info(f"Tracking file: {tracking_file} ({len(processed)} folders already processed)")
 
@@ -106,7 +106,7 @@ def process_entities(client, entities, tracking_file, thumbnail, dry_run):
             continue
         try:
             folder = client.folder(entity.reference)
-            refresh_thumbnail(client, folder, thumbnail, dry_run=dry_run)
+            refresh_thumbnail(client, folder, thumbnail, wait=wait, dry_run=dry_run)
             if not dry_run:
                 mark_processed(tracking_file, folder.reference)
                 processed.add(folder.reference)
@@ -140,6 +140,7 @@ def main(args):
         iter_folders(client, root),
         Path(args.tracking_file),
         args.thumbnail,
+        args.wait,
         args.dry_run,
     )
 
@@ -156,6 +157,8 @@ if __name__ == "__main__":
                         help='Path to processed folders tracking file (default: processed_folders.txt)')
     parser.add_argument('--folder',
                         help='Folder reference to walk (use "root" for the full repository)')
+    parser.add_argument('--wait', type=int, default=THUMBNAIL_WAIT_SECONDS,
+                        help=f'Seconds to wait between remove and add API calls (default: {THUMBNAIL_WAIT_SECONDS})')
     parser.add_argument('--dry-run', action='store_true',
                         help='Detect unprocessed folders without modifying thumbnails')
 
