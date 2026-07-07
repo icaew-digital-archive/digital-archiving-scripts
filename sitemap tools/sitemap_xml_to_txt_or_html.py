@@ -15,6 +15,13 @@ from xml.etree import ElementTree
 
 import requests
 
+# Some sites' WAFs 403 the default python-requests User-Agent outright, even
+# though the same request works fine from a browser or curl with no UA at all.
+REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+}
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -81,22 +88,39 @@ def to_html(sitemap_urls, filename):
         f.write(html)
 
 
-def get_sitemap_urls(sitemap_urls):
-    """Gets sitemap URLs from XML file or URL"""
+def get_sitemap_urls(sitemap_urls, _seen=None):
+    """Gets page URLs from one or more sitemap inputs (XML files or URLs).
+
+    Transparently recurses into sitemap indexes (<sitemapindex>), so a
+    top-level sitemap_index.xml resolves all the way down to page URLs
+    instead of returning the child sitemap URLs themselves.
+    """
+    if _seen is None:
+        _seen = set()
+
     url_tree = []
     for sitemap in sitemap_urls:
+        if sitemap in _seen:
+            continue
+        _seen.add(sitemap)
+
         # Check if XML is local file
         if Path(sitemap).is_file():
-            tree = ElementTree.parse(sitemap)
-            root = tree.getroot()
-            for i in range(len(root)):
-                url_tree.append(root[i][0].text)
+            root = ElementTree.parse(sitemap).getroot()
         # Else read XML from URL
         else:
-            response = requests.get(sitemap)
-            tree = ElementTree.fromstring(response.content)
-            for i in range(len(tree)):
-                url_tree.append(tree[i][0].text)
+            response = requests.get(sitemap, headers=REQUEST_HEADERS)
+            root = ElementTree.fromstring(response.content)
+
+        # Namespace-agnostic tag check, e.g. '{http://.../0.9}sitemapindex' -> 'sitemapindex'
+        root_tag = root.tag.rsplit('}', 1)[-1]
+
+        if root_tag == 'sitemapindex':
+            child_sitemaps = [child[0].text for child in root]
+            url_tree.extend(get_sitemap_urls(child_sitemaps, _seen))
+        else:
+            url_tree.extend(child[0].text for child in root)
+
     return url_tree
 
 
