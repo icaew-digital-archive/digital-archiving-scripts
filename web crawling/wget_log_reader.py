@@ -5,10 +5,11 @@
 Log Analysis with wget_log_reader.py
 
 The script analyzes wget log files and compares them against the original URL list.
-Generates three CSV files with timestamps:
+Generates four CSV files with timestamps:
 - matching_urls_[timestamp].csv: URLs successfully crawled with 200 status
 - missing_urls_[timestamp].csv: URLs not found in the archives
-- non_200_urls_[timestamp].csv: URLs with non-200 status codes
+- non_200_urls_[timestamp].csv: URLs with non-200 status codes (excluding redirects)
+- redirections_[timestamp].csv: URLs that returned a 3xx redirect, with destination
 
 Usage:
     python wget_log_reader.py <log_file_path> <url_file_path>
@@ -27,7 +28,8 @@ def compile_patterns():
         "status_code": re.compile(r"response... (\d{3})"),
         "length": re.compile(r"Length: (\d+)"),
         "length_unspecified": re.compile(r"Length: unspecified"),
-        "saved_number": re.compile(r"saved \[(\d+)\]")
+        "saved_number": re.compile(r"saved \[(\d+)\]"),
+        "redirect_location": re.compile(r"Location: (https?://[^\s\[]+)")
     }
 
 
@@ -43,13 +45,15 @@ def extract_details(log_entry, patterns):
     length_match = patterns["length"].search(log_entry)
     length_unspecified = patterns["length_unspecified"].search(log_entry) is not None
     saved_match = patterns["saved_number"].search(log_entry)
-    
+    redirect_match = patterns["redirect_location"].search(log_entry)
+
     return {
         "url": url_match.group(0) if url_match else None,
         "status_code": status_match.group(1) if status_match else None,
         "length": length_match.group(1) if length_match else None,
         "length_unspecified": length_unspecified,
-        "saved_number": saved_match.group(1) if saved_match else None
+        "saved_number": saved_match.group(1) if saved_match else None,
+        "redirect_location": redirect_match.group(1).strip() if redirect_match else None
     }
 
 
@@ -65,16 +69,16 @@ def categorize_url(url, details):
     """
     if not details or not details["url"]:
         return 'missing'
-    
-    # Check HTTP status code
+
     if not details["status_code"]:
-        return 'non_200'  # Missing status code is treated as non-200
-    elif details["status_code"] != "200":
         return 'non_200'
-    
-    # If we get here, status is 200, but check for other issues
-    # For matching URLs, we still want to include them even if there are length issues
-    # (those would be logged separately if needed)
+
+    if details["status_code"].startswith("3"):
+        return 'redirect'
+
+    if details["status_code"] != "200":
+        return 'non_200'
+
     return 'matching'
 
 
@@ -94,12 +98,13 @@ def main(log_file_path, url_file_path):
     matching_urls = []
     missing_urls = []
     non_200_urls = []
+    redirect_urls = []
 
     # Categorize each URL
     for url in urls_to_check:
         details = log_details.get(url)
         category = categorize_url(url, details)
-        
+
         if category == 'matching':
             matching_urls.append({
                 'url': url,
@@ -108,6 +113,12 @@ def main(log_file_path, url_file_path):
             })
         elif category == 'missing':
             missing_urls.append({'url': url})
+        elif category == 'redirect':
+            redirect_urls.append({
+                'original_url': url,
+                'redirect_url': details.get('redirect_location', 'N/A') if details else 'N/A',
+                'status_code': details.get('status_code', 'N/A') if details else 'N/A'
+            })
         else:  # non_200
             non_200_urls.append({
                 'url': url,
@@ -118,24 +129,27 @@ def main(log_file_path, url_file_path):
     matching_file = f"matching_urls_{timestamp}.csv"
     missing_file = f"missing_urls_{timestamp}.csv"
     non_200_file = f"non_200_urls_{timestamp}.csv"
+    redirections_file = f"redirections_{timestamp}.csv"
 
-    # Write matching URLs
     with open(matching_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=['url', 'status_code', 'saved_bytes'])
         writer.writeheader()
         writer.writerows(matching_urls)
 
-    # Write missing URLs
     with open(missing_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=['url'])
         writer.writeheader()
         writer.writerows(missing_urls)
 
-    # Write non-200 URLs
     with open(non_200_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=['url', 'status_code'])
         writer.writeheader()
         writer.writerows(non_200_urls)
+
+    with open(redirections_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['original_url', 'redirect_url', 'status_code'])
+        writer.writeheader()
+        writer.writerows(redirect_urls)
 
     # Print summary
     total = len(urls_to_check)
@@ -144,12 +158,14 @@ def main(log_file_path, url_file_path):
     print(f"  Total URLs checked: {total}")
     print(f"  Matching (200 status): {len(matching_urls)}")
     print(f"  Missing (not found): {len(missing_urls)}")
+    print(f"  Redirected (3xx): {len(redirect_urls)}")
     print(f"  Non-200 status codes: {len(non_200_urls)}")
     print(f"{'='*60}")
     print(f"\nGenerated CSV files:")
     print(f"  - {matching_file}")
     print(f"  - {missing_file}")
     print(f"  - {non_200_file}")
+    print(f"  - {redirections_file}")
 
 
 if __name__ == "__main__":
