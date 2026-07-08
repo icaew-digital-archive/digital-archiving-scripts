@@ -161,36 +161,50 @@ class WARCProcessor:
         self.logger.info(f"Combined WARC created with {record_count} records: {temp_warc_path}")
         return temp_warc_path
     
-    def convert_warc_to_wacz(self, warc_path: Path, detect_pages: bool = True, text_index: bool = False) -> None:
+    def convert_warc_to_wacz(self, warc_path: Path, detect_pages: bool = True, text_index: bool = False,
+                              pages: Optional[Path] = None, extra_pages: Optional[Path] = None,
+                              copy_pages: bool = False) -> None:
         """
         Convert a WARC file to WACZ format using the wacz command-line tool.
-        
+
         Args:
             warc_path (Path): Path to the WARC file to convert
-            detect_pages (bool): Whether to detect pages and generate pages.jsonl
-            text_index (bool): Whether to generate full-text search index
+            detect_pages (bool): Whether to detect pages and generate pages.jsonl (ignored if pages is set -
+                wacz's create command rejects --detect-pages and --pages together)
+            text_index (bool): Whether to generate full-text search index (via wacz's own boilerpy3
+                extraction - not needed if the passed pages already have a "text" field, e.g. Browsertrix's
+                own pages.jsonl/extraPages.jsonl)
+            pages (Path): Existing pages.jsonl to pass through instead of wacz's own page detection
+            extra_pages (Path): Existing extraPages.jsonl to pass through alongside pages
+            copy_pages (bool): Copy pages/extra_pages into the WACZ verbatim rather than re-matching them
+                against WARC records - use this when the file already has everything needed (e.g. text)
         """
         # Convert to absolute paths
         warc_path = warc_path.resolve()
         output_path = self.output_path.resolve()
-        
+
         # Verify WARC file exists
         if not warc_path.exists():
             raise FileNotFoundError(f"WARC file does not exist: {warc_path}")
-        
-        self.logger.info(f"Converting WARC to WACZ: {warc_path} -> {output_path}")
-        
-        try:
-            # Build wacz command. Some wacz installs expose a top-level
-            # CLI (usage: `wacz [options] inputs`) rather than a
-            # `wacz create` subcommand. Call the simpler form which is
-            # compatible with both common variants when used with options
-            # before the input path.
-            cmd = ['wacz', '-o', str(output_path)]
 
-            # Add options based on parameters
-            if detect_pages:
+        self.logger.info(f"Converting WARC to WACZ: {warc_path} -> {output_path}")
+
+        try:
+            # Current wacz releases (PyPI 'wacz' package) require the
+            # 'create' subcommand - there is no flat top-level form.
+            cmd = ['wacz', 'create', '-o', str(output_path)]
+
+            # --pages and --detect-pages are mutually exclusive in wacz create
+            # (it errors if both are set) - pages takes priority when given.
+            if pages:
+                cmd += ['-p', str(Path(pages).resolve())]
+                if copy_pages:
+                    cmd.append('-c')
+            elif detect_pages:
                 cmd.append('--detect-pages')
+
+            if extra_pages:
+                cmd += ['-e', str(Path(extra_pages).resolve())]
 
             if text_index:
                 # the CLI accepts short -t for text/indexing
@@ -226,40 +240,45 @@ class WARCProcessor:
             self.logger.error(f"Error converting WARC to WACZ: {e}")
             raise
     
-    def process(self, cleanup_temp: bool = True, detect_pages: bool = True, text_index: bool = False) -> None:
+    def process(self, cleanup_temp: bool = True, detect_pages: bool = True, text_index: bool = False,
+                pages: Optional[str] = None, extra_pages: Optional[str] = None,
+                copy_pages: bool = False) -> None:
         """
         Main processing method.
-        
+
         Args:
             cleanup_temp (bool): Whether to clean up temporary files
-            detect_pages (bool): Whether to detect pages and generate pages.jsonl
+            detect_pages (bool): Whether to detect pages and generate pages.jsonl (ignored if pages is set)
             text_index (bool): Whether to generate full-text search index
+            pages (str): Existing pages.jsonl to pass through instead of wacz's own page detection
+            extra_pages (str): Existing extraPages.jsonl to pass through alongside pages
+            copy_pages (bool): Copy pages/extra_pages into the WACZ verbatim
         """
         try:
             # Find WARC files
             warc_files = self.find_warc_files()
-            
+
             # If only one WARC file, use it directly
             if len(warc_files) == 1:
                 self.logger.info("Single WARC file found, converting directly to WACZ")
-                self.convert_warc_to_wacz(warc_files[0], detect_pages, text_index)
+                self.convert_warc_to_wacz(warc_files[0], detect_pages, text_index, pages, extra_pages, copy_pages)
             else:
                 # Create temporary WARC file path
                 temp_warc_path = self.output_path.with_suffix('.warc.gz')
-                
+
                 # Combine WARC files
                 combined_warc = self.combine_warc_files(warc_files, temp_warc_path)
-                
+
                 # Convert to WACZ
-                self.convert_warc_to_wacz(combined_warc, detect_pages, text_index)
-                
+                self.convert_warc_to_wacz(combined_warc, detect_pages, text_index, pages, extra_pages, copy_pages)
+
                 # Clean up temporary file
                 if cleanup_temp and temp_warc_path.exists():
                     temp_warc_path.unlink()
                     self.logger.info(f"Cleaned up temporary file: {temp_warc_path}")
-            
+
             self.logger.info("Processing completed successfully!")
-            
+
         except Exception as e:
             self.logger.error(f"Processing failed: {e}")
             raise
@@ -341,7 +360,25 @@ Examples:
         action='store_true',
         help='Generate full-text search index (requires --detect-pages)'
     )
-    
+
+    parser.add_argument(
+        '--pages',
+        help='Existing pages.jsonl to pass through instead of wacz\'s own page detection '
+             '(overrides --detect-pages)'
+    )
+
+    parser.add_argument(
+        '--extra-pages',
+        help='Existing extraPages.jsonl to pass through alongside --pages'
+    )
+
+    parser.add_argument(
+        '--copy-pages',
+        action='store_true',
+        help='Copy --pages/--extra-pages into the WACZ verbatim rather than re-matching them against '
+             'WARC records - use when the file already has everything needed (e.g. text)'
+    )
+
     args = parser.parse_args()
     
     # Determine log level
@@ -363,7 +400,10 @@ Examples:
         processor.process(
             cleanup_temp=not args.keep_temp,
             detect_pages=args.detect_pages,
-            text_index=args.text_index
+            text_index=args.text_index,
+            pages=args.pages,
+            extra_pages=args.extra_pages,
+            copy_pages=args.copy_pages
         )
         
     except Exception as e:
