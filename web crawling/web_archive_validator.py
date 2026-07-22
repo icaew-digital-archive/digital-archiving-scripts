@@ -113,7 +113,7 @@ def extract_warc_from_wacz(wacz_path, temp_dir):
                     extracted_path = os.path.join(
                         temp_dir, os.path.basename(file))
                     with wacz.open(file) as source, open(extracted_path, 'wb') as target:
-                        target.write(source.read())
+                        shutil.copyfileobj(source, target)
                     extracted_warcs.append(extracted_path)
                     logging.debug(f"Extracted WARC file: {extracted_path}")
     except Exception as e:
