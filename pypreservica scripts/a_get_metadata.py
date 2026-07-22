@@ -525,7 +525,13 @@ def main():
             elif args.entity_type == 'folders' and entity_type_str != 'EntityType.FOLDER':
                 continue
 
-            asset = get_cached_entity(client, entity)
+            try:
+                asset = get_cached_entity(client, entity)
+            except Exception as e:
+                logging.error(f"Skipping entity {entity.reference} in extraction phase: {e}")
+                error_count += 1
+                entities_processed += 1
+                continue
 
             logging.info(f"Getting metadata and checksum for assetID: {asset.reference}")
 

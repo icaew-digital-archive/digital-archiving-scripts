@@ -95,7 +95,22 @@ with open(args.csv_file, encoding='utf-8-sig', newline='') as csvfile:
             xml_request_icaew = etree.tostring(
                 root_icaew, pretty_print=False).decode('utf-8')
 
-            # Try/except to add metadata to asset or folder
+            # Resolve entity type once, then apply all schema updates
+            entity_obj = None
+            entity_type_label = None
+            try:
+                entity_obj = entity.asset(assetID)
+                entity_type_label = 'asset'
+            except Exception:
+                try:
+                    entity_obj = entity.folder(assetID)
+                    entity_type_label = 'folder'
+                except Exception as e:
+                    print(f"Could not find asset or folder with ID {assetID}: {e}")
+
+            if entity_obj is None:
+                continue
+
             for schema_uri, xml_request, present in [
                 (OAI_DC, xml_request_dc, has_dc),
                 (ICAEW, xml_request_icaew, has_icaew)
@@ -103,16 +118,9 @@ with open(args.csv_file, encoding='utf-8-sig', newline='') as csvfile:
                 if not present:
                     continue
                 try:
-                    asset = entity.asset(assetID)
-                    print(f"Adding {schema_uri} metadata for assetID: {asset.reference}")
-                    entity.add_metadata(asset, schema_uri, xml_request)
-                except:
-                    pass
-                try:
-                    asset = entity.folder(assetID)
-                    print(f"Adding {schema_uri} metadata for assetID: {asset.reference}")
-                    entity.add_metadata(asset, schema_uri, xml_request)
-                except:
-                    pass
+                    print(f"Adding {schema_uri} metadata for {entity_type_label}: {entity_obj.reference}")
+                    entity.add_metadata(entity_obj, schema_uri, xml_request)
+                except Exception as e:
+                    print(f"Failed to add {schema_uri} metadata for {assetID}: {e}")
     else:
         print("The CSV file should contain an assetId column containing the Preservica identifier for the asset to be updated")

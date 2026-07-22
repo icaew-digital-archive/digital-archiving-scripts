@@ -40,12 +40,15 @@ def update_assets_from_csv(client, csv_file):
             new_security_tag = row['asset.security_tag']
             entity_type = row['entity.entity_type']
 
-            if entity_type == 'EntityType.FOLDER':
-                asset = client.folder(asset_id)
-            if entity_type == 'EntityType.ASSET':
-                asset = client.asset(asset_id)
-
             try:
+                if entity_type == 'EntityType.FOLDER':
+                    asset = client.folder(asset_id)
+                elif entity_type == 'EntityType.ASSET':
+                    asset = client.asset(asset_id)
+                else:
+                    logger.warning(f"Unknown entity type '{entity_type}' for asset {asset_id}, skipping")
+                    continue
+
                 metadata_updated = False
                 security_tag_updated = False
 
