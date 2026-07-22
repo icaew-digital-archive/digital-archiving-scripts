@@ -288,7 +288,7 @@ def score_asset(row: dict[str, list[str]], valid_subjects: set[str]) -> tuple[in
     else:
         no_amp      = "&" not in dc_title
         no_dot      = not dc_title.endswith(".")
-        upper_start = dc_title[0].isupper()
+        upper_start = dc_title[0].isupper() or dc_title[0].isdigit()
         scores["title_format"] = (
             (2 if no_amp      else 0) +
             (2 if no_dot      else 0) +
@@ -310,11 +310,6 @@ def score_asset(row: dict[str, list[str]], valid_subjects: set[str]) -> tuple[in
         flags.append("reserved_source_populated")
     if first(row, "dc:coverage"):
         flags.append("reserved_coverage_populated")
-
-    # Identifiers against known pattern
-    bad_ids = [i for i in vals(row, "dc:identifier") if not IDENTIFIER_PATTERN.match(i)]
-    if bad_ids:
-        flags.append("suspect_identifiers:" + "|".join(bad_ids[:3]))
 
     # Description must end with . or ? before the AI suffix
     if dc_desc and dc_desc.endswith("(AI generated description)"):
@@ -407,32 +402,41 @@ def main() -> None:
         metavar="PREFIX",
         help="Skip assets whose preservica_path starts with this prefix (e.g. 'Admin/')",
     )
+    parser.add_argument(
+        "--problems-only",
+        action="store_true",
+        help="Output only rows with issues; all original columns are included with scoring columns appended",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input_csv)
     if not input_path.exists():
         parser.error(f"Input file not found: {input_path}")
 
-    output_path    = Path(args.output) if args.output else input_path.with_stem(input_path.stem + "-scores")
+    problems_only  = args.problems_only
+    default_suffix = "-problems" if problems_only else "-scores"
+    output_path    = Path(args.output) if args.output else input_path.with_stem(input_path.stem + default_suffix)
     exclude_prefix = args.exclude
 
     print("Loading subject taxonomy…", file=sys.stderr)
     valid_subjects = load_valid_subjects()
 
-    out_fields = [
-        "assetId", "filename", "preservica_path", "total_score",
-        "required_fields", "consistency", "date_format",
+    score_col_names = [
+        "total_score", "required_fields", "consistency", "date_format",
         "controlled_vocab", "subjects", "description_quality", "title_format",
         "flags",
     ]
 
-    total_assets = 0
-    skipped = 0
+    total_assets  = 0
+    written       = 0
+    skipped       = 0
     score_buckets = {"0-24": 0, "25-49": 0, "50-74": 0, "75-89": 0, "90-100": 0}
 
     print(f"Scoring {input_path.name}…", file=sys.stderr)
     if exclude_prefix:
         print(f"  Excluding paths starting with: {exclude_prefix!r}", file=sys.stderr)
+    if problems_only:
+        print("  Mode: problems only (all original columns + scoring columns)", file=sys.stderr)
 
     with (
         open(input_path,  encoding="utf-8-sig", newline="") as infile,
@@ -446,8 +450,8 @@ def main() -> None:
         for i, h in enumerate(headers):
             header_to_indices.setdefault(h, []).append(i)
 
-        writer = csv.DictWriter(outfile, fieldnames=out_fields)
-        writer.writeheader()
+        writer = csv.writer(outfile)
+        writer.writerow(headers + score_col_names)
 
         for raw_row in reader:
             row = build_row_dict(raw_row, header_to_indices)
@@ -464,15 +468,6 @@ def main() -> None:
                 continue
 
             total, scores, flags = score_asset(row, valid_subjects)
-
-            writer.writerow({
-                "assetId":         first(row, "assetId"),
-                "filename":        first(row, "filename"),
-                "preservica_path": path,
-                "total_score":     total,
-                **scores,
-                "flags":           "; ".join(flags),
-            })
             total_assets += 1
 
             if   total <= 24:  score_buckets["0-24"]   += 1
@@ -481,9 +476,28 @@ def main() -> None:
             elif total <= 89:  score_buckets["75-89"]  += 1
             else:              score_buckets["90-100"] += 1
 
+            flags_str = "; ".join(flags)
+
+            if problems_only and not flags:
+                continue
+
+            writer.writerow(
+                list(raw_row) + [
+                    total,
+                    scores["required_fields"], scores["consistency"],
+                    scores["date_format"],     scores["controlled_vocab"],
+                    scores["subjects"],        scores["description_quality"],
+                    scores["title_format"],    flags_str,
+                ]
+            )
+            written += 1
+
     if skipped:
         print(f"  Skipped {skipped} assets matching exclude prefix.", file=sys.stderr)
-    print(f"\nDone. {total_assets} assets scored → {output_path.name}", file=sys.stderr)
+    if problems_only:
+        print(f"\nDone. {total_assets} assets scored, {written} with problems → {output_path.name}", file=sys.stderr)
+    else:
+        print(f"\nDone. {total_assets} assets scored → {output_path.name}", file=sys.stderr)
     print("Score distribution:", file=sys.stderr)
     for band, count in score_buckets.items():
         pct = count / total_assets * 100 if total_assets else 0

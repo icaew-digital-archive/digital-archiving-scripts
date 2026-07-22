@@ -36,6 +36,20 @@ def main():
         action='store_true',
         help='Include assets (EntityType.ASSET) in the tree; default is folders only (EntityType.FOLDER)',
     )
+    parser.add_argument(
+        '--refs-csv',
+        type=Path,
+        default=None,
+        metavar='FILE',
+        help='Output CSV of folder references (assetId, title, preservica_path); not written by default',
+    )
+    parser.add_argument(
+        '--level',
+        type=int,
+        default=None,
+        metavar='N',
+        help='Output only entities at exactly this depth level in the refs CSV (1 = top-level, 2 = one level down, etc.)',
+    )
     args = parser.parse_args()
 
     inp = args.input_csv.resolve()
@@ -55,6 +69,7 @@ def main():
 
     # Build trie from preservica_path; each node is {"_id": assetId or None, "children": {...}}
     root = {'_id': None, 'children': {}}
+    refs = []  # (assetId, title, preservica_path) for refs CSV
 
     with inp.open('r', newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -67,6 +82,17 @@ def main():
                 continue
             asset_id = (row.get('assetId') or '').strip()
             parts = [x.strip() for x in p.split('/') if x.strip()]
+            if args.level is not None:
+                include = (len(parts) == args.level)
+            elif args.depth is not None:
+                include = (len(parts) <= args.depth)
+            else:
+                include = True
+            if include:
+                xip_title = (row.get('entity.title') or '').strip()
+                xip_description = (row.get('entity.description') or '').strip()
+                security_tag = (row.get('asset.security_tag') or '').strip()
+                refs.append((asset_id, parts[-1], p, xip_title, xip_description, entity_type, security_tag))
             node = root
             for i, part in enumerate(parts):
                 is_last = (i == len(parts) - 1)
@@ -98,6 +124,16 @@ def main():
 
     print(f"Wrote tree to: {out}")
     print(f"Total lines: {len(lines)}")
+
+    if args.refs_csv is not None:
+        refs_out = args.refs_csv.resolve()
+        with refs_out.open('w', newline='', encoding='utf-8') as rf:
+            writer = csv.writer(rf)
+            writer.writerow(['assetId', 'entity.entity_type', 'asset.security_tag', 'title', 'preservica_path', 'entity.title', 'entity.description'])
+            for ref_id, title, path, xip_title, xip_desc, etype, sec_tag in sorted(refs, key=lambda x: x[2].casefold()):
+                writer.writerow([ref_id, etype, sec_tag, title, path, xip_title, xip_desc])
+        print(f"Wrote refs to: {refs_out}")
+        print(f"Total refs: {len(refs)}")
 
 
 if __name__ == '__main__':
