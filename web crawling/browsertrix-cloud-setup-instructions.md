@@ -1,5 +1,7 @@
 # Browsertrix Cloud Setup — Instructions
 
+Written in conjunction with the official Browsertrix deployment docs: <https://docs.browsertrix.com/deploy/>. This guide covers one specific path through them (DigitalOcean + MicroK8s) with the exact commands and gotchas hit along the way — refer back to the official docs for other providers or deeper chart configuration options.
+
 | | |
 |---|---|
 | **Domain** | browsertrix.craiglmccarthy.com |
@@ -80,8 +82,6 @@ If this hangs or is refused, double-check the correct SSH key was attached when 
 
 ## Step 1 — Verify DNS points at this server
 
-> _(Done, kept for reference. Status: confirmed working 2026-07-28.)_
-
 Run this on the droplet to serve a basic test page on port 80:
 
 ```bash
@@ -145,7 +145,7 @@ microk8s kubectl get pods -A
 
 ## Step 4 — Install Helm + deploy Browsertrix
 
-> **Status (2026-07-28):** Step 2/3 confirmed healthy — cert-manager, ingress (Traefik), coredns, calico, hostpath-provisioner all Running. MicroK8s already ships Helm (no separate install needed) — use `microk8s helm3`.
+> **Note:** MicroK8s already ships Helm — no separate install needed, use `microk8s helm3`.
 
 > **Note:** MicroK8s's ingress addon uses Traefik with ingress class name `public` (**NOT** nginx, which is the chart's default). The official `chart/examples/microk8s-hosted.yaml` example handles this correctly, so we use that as the base config rather than hand-writing `values.yaml`.
 
@@ -211,7 +211,7 @@ microk8s kubectl get certificate -A
 microk8s kubectl describe certificate -n default <name>
 ```
 
-> **Status (2026-07-28):** first attempt showed "No resources found" here — see the note above 4d. Fix applied: re-ran the `my-config.yaml` heredoc (now includes `ingress.annotations.cert-manager.io/cluster-issuer`), then re-ran 4d (`helm upgrade --install` is safe/idempotent to re-run), then re-checked this command — should now show a `cert-main` Certificate, `READY=False` at first, flipping to `True` within a minute or two as the HTTP-01 challenge completes.
+> **Note:** should show a `cert-main` Certificate, `READY=False` at first, flipping to `True` within a minute or two as the HTTP-01 challenge completes. If it stays "No resources found", check that `ingress.annotations.cert-manager.io/cluster-issuer` is set in `my-config.yaml` (see the note above 4d) and re-run `helm upgrade --install` (safe/idempotent to re-run).
 
 ### 4g) Once ready, visit
 
