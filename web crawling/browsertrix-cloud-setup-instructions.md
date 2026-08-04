@@ -5,7 +5,7 @@
 | **Domain** | browsertrix.craiglmccarthy.com |
 | **Droplet** | DigitalOcean, region LON1 (London), Ubuntu 24.04 LTS |
 | **Plan** | s-4vcpu-8gb (4 vCPU / 8GB RAM / 160GB disk) |
-| **IP** | 161.35.XX.XX |
+| **IP** | XX.XX.XX.XX |
 
 ## What you need before starting
 
@@ -35,7 +35,7 @@ At <https://cloud.digitalocean.com/droplets/new>:
 - **Authentication:** SSH Keys → add/select the public key from "What you need before starting" above (paste the contents of `id_ed25519.pub`, or upload it). **Do NOT use password auth only.**
 - **Backups:** optional, adds cost (~$9.60-14.40/mo) — skip if going for the cheapest/simplest setup
 - Give it a name, pick a project, click **Create Droplet**
-- Once created, note its public IPv4 address from the droplet list (this guide's example: `161.35.XX.XX`)
+- Once created, note its public IPv4 address from the droplet list (this guide's example: `XX.XX.XX.XX`)
 
 ### 0b) Point your domain at that IP
 
@@ -67,7 +67,7 @@ If this hangs or is refused, double-check the correct SSH key was attached when 
 > **All commands from here on are meant to be run in an SSH session on the droplet** unless stated otherwise.
 >
 > ```bash
-> ssh root@161.35.XX.XX
+> ssh root@XX.XX.XX.XX
 > ```
 
 ---
