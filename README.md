@@ -27,7 +27,7 @@ pip install -r requirements.txt
 | [`sitemap tools/`](sitemap%20tools/README.md) | Monitor sitemaps for changes; extract URL lists from XML sitemaps |
 | [`video platform export scripts/`](video%20platform%20export%20scripts/README.md) | Batch video downloads; exploratory Vimeo and YouTube API scripts |
 | [`web crawling/`](web%20crawling/README.md) | Process and validate WARC/WACZ archives; analyse wget logs; scrape crt.sh |
-| [`browsertrix-crawler files and scripts/`](browsertrix-crawler%20files%20and%20scripts/README.md) | Custom JS behaviours for Browsertrix Crawler; crawl log helpers |
+| [`web crawling/browsertrix-crawler files and scripts/`](web%20crawling/browsertrix-crawler%20files%20and%20scripts/README.md) | Custom JS behaviours for Browsertrix Crawler; crawl log helpers |
 
 ---
 
