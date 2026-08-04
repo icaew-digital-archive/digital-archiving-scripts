@@ -274,3 +274,32 @@ microk8s kubectl top pods -A
 - **WACZ signing / second domain deliberately skipped** — user wants the simplest possible deployment. `signer.enabled` left false, `mongo_auth` left at chart defaults (Mongo isn't exposed outside the cluster).
 - **Pinned chart install to release v1.24.0** (latest stable as of 2026-07-28) rather than tracking main branch.
 - **MicroK8s's ingress addon = Traefik with ingress class `public`**, not nginx (the chart's default) — this is why we use the official `chart/examples/microk8s-hosted.yaml` as the base config.
+
+---
+
+## Teardown — deleting everything
+
+Deleting the droplet removes MicroK8s and Browsertrix in one step; there's nothing separate to uninstall first.
+
+> **Before you destroy anything:** crawl data (WACZ files, collections) lives in MinIO on the droplet's own disk via the `storage` addon (Step 3) — it is **not** backed up anywhere else. Export or download anything you need to keep (via the Browsertrix UI, or `microk8s kubectl cp` off the MinIO pod) before proceeding. Once the droplet is destroyed, that data is gone.
+
+### 1) Delete the droplet
+
+At <https://cloud.digitalocean.com/droplets>:
+
+- Select the droplet (`ubuntu-s-4vcpu-8gb-lon1`, or whatever you named it in Step 0a)
+- **Destroy** → **Destroy Droplet** → confirm
+
+This stops billing for the droplet immediately. Any snapshots/backups you opted into (Step 0a) are billed separately and must be deleted on their own if you don't want them kept.
+
+### 2) Remove the DNS record
+
+Go back to wherever you added the A record in Step 0b and delete it (or repoint it elsewhere). Otherwise `browsertrix.craiglmccarthy.com` (or your subdomain) will keep resolving to an IP that no longer belongs to you — DigitalOcean recycles released IPs to other customers.
+
+### 3) Double-check nothing's still running
+
+```bash
+doctl compute droplet list   # requires doctl CLI + auth; alternatively just check the DO dashboard
+```
+
+Confirms the droplet no longer appears in your account.
