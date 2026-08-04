@@ -11,7 +11,13 @@
 
 - A registered domain name, with access to its DNS settings (either at your registrar directly, or wherever its nameservers point).
 - A DigitalOcean account with billing set up (or any cloud provider — this guide uses DO, see **Step 0** below).
-- An SSH key pair on your own computer. If you don't already have one:
+- An SSH key pair on your own computer. Check whether you already have one:
+
+  ```bash
+  ls -la ~/.ssh/id_ed25519*
+  ```
+
+  If that lists `id_ed25519` and `id_ed25519.pub`, you're set — skip to Step 0. Otherwise, generate one:
 
   ```bash
   ssh-keygen -t ed25519
