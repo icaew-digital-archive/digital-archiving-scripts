@@ -80,6 +80,26 @@ python wget_log_reader.py <log_file> <url_list>
 
 ---
 
+## `fix_multiwacz.py`
+
+Rebuild a spec-compliant WACZ from a Browsertrix multi-wacz wrapper (or a set of already-unwrapped shard files).
+
+```bash
+python fix_multiwacz.py --input <broken.wacz> [<shard2.wacz>...] (--output <fixed.wacz> | --replace-input) [options]
+```
+
+| Argument | Description |
+|---|---|
+| `--input` / `-i` | One or more input `.wacz` files: a multi-wacz wrapper and/or individual shard files (required) |
+| `--output` / `-o` | Output path for the rebuilt WACZ (required unless `--replace-input`) |
+| `--replace-input` | Back up the single input file (to `<name>.broken-multiwacz.bak`) and overwrite it in place |
+| `--hash-type` | Hash algorithm for `datapackage.json`: `sha256` or `md5` (default: `sha256`) |
+| `--title` / `--desc` / `--url` | Collection metadata to record in `datapackage.json` |
+| `--keep-temp` | Keep the temporary working directory for inspection |
+| `--verbose` / `-v` | Enable verbose logging |
+
+---
+
 ## `crt-scraper.py`
 
 Fetch unique SSL/TLS certificate identities for a domain from [crt.sh](https://crt.sh). Useful for enumerating subdomains before a crawl.

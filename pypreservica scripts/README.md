@@ -152,14 +152,15 @@ python build_preservica_tree.py <export.csv> [options]
 
 ---
 
-## `remove_thumbnails.py`
+## `manage_thumbnails.py`
 
-Add, remove, or download thumbnail images for Preservica assets or folders.
+Add, remove, download, or check thumbnail images for Preservica assets or folders.
 
 ```bash
-python remove_thumbnails.py add     <REFERENCE> <IMAGE_PATH> [--file <refs.txt>]
-python remove_thumbnails.py remove  <REFERENCE>              [--file <refs.txt>]
-python remove_thumbnails.py download <REFERENCE> [OUTPUT_PATH] [--size <SIZE>] [--file <refs.txt>]
+python manage_thumbnails.py add      <REFERENCE> <IMAGE_PATH> [--file <refs.txt>]
+python manage_thumbnails.py remove   <REFERENCE>              [--file <refs.txt>]
+python manage_thumbnails.py download <REFERENCE> [OUTPUT_PATH] [--size <SIZE>] [--file <refs.txt>]
+python manage_thumbnails.py check    <REFERENCE>              [--file <refs.txt>]
 ```
 
 ---
