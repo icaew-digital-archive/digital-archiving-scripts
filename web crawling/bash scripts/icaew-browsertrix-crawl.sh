@@ -47,7 +47,7 @@ SCRIPTS_REPO_RAW="https://raw.githubusercontent.com/icaew-digital-archive/digita
 VALIDATOR_URL="$SCRIPTS_REPO_RAW/web%20crawling/web_archive_validator.py"
 SITEMAP_SCRIPT_URL="$SCRIPTS_REPO_RAW/sitemap%20tools/sitemap_xml_to_txt_or_html.py"
 WARC_PROCESSOR_URL="$SCRIPTS_REPO_RAW/web%20crawling/warc_processor.py"
-CUSTOM_BEHAVIORS_URL="$SCRIPTS_REPO_RAW/browsertrix-crawler%20files%20and%20scripts/icaew-com-behaviors-v2.js"
+CUSTOM_BEHAVIORS_URL="https://raw.githubusercontent.com/icaew-digital-archive/digital-archiving-scripts/997fe54ba2ea59fd2379c62d6c5b68dcdc89db4d/web%20crawling/browsertrix-crawler%20files%20and%20scripts/icaew-com-behaviors-v4.js"
 IMAGE="webrecorder/browsertrix-crawler:1.5.11"
 
 # web_archive_validator.py needs 'warcio'+'tqdm'; sitemap_xml_to_txt_or_html.py

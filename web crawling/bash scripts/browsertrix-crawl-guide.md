@@ -378,7 +378,7 @@ already had.
   (matching the two collection names, `icaew-com-logged-in`/
   `icaew-com-public`, the original config already distinguished between).
 - **Custom behaviours**: a site-specific JavaScript file
-  (`icaew-com-behaviors-v2.js`) is referenced via `customBehaviors`, handling
+  (`icaew-com-behaviors-v4.js`) is referenced via `customBehaviors`, handling
   icaew.com-specific interactions during the crawl (cookie banners, etc.).
   Sourced from the same `digital-archiving-scripts` GitHub repo, pinned to
   the same commit as the other helper scripts.

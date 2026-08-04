@@ -30,7 +30,7 @@
 
 set -uo pipefail
 
-CUSTOM_BEHAVIORS_URL="https://raw.githubusercontent.com/icaew-digital-archive/digital-archiving-scripts/22db0b1a14dbcfa64231931ddec12dbad7672136/browsertrix-crawler%20files%20and%20scripts/icaew-com-behaviors-v2.js"
+CUSTOM_BEHAVIORS_URL="https://raw.githubusercontent.com/icaew-digital-archive/digital-archiving-scripts/997fe54ba2ea59fd2379c62d6c5b68dcdc89db4d/web%20crawling/browsertrix-crawler%20files%20and%20scripts/icaew-com-behaviors-v4.js"
 IMAGE="webrecorder/browsertrix-crawler:1.5.11"
 
 # ---- Defaults ------------------------------------------------------------
