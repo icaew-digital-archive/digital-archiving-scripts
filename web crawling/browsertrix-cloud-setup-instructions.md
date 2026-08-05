@@ -270,6 +270,91 @@ microk8s enable metrics-server
 microk8s kubectl top pods -A
 ```
 
+## Step 5 — Configure the ICAEW org: browser profile, collections, crawl workflows
+
+Reference: [Browsertrix User Guide](https://docs.browsertrix.com/user-guide/) — specifically [Browser Profiles](https://docs.browsertrix.com/user-guide/browser-profiles/create-browser-profile/), [Collections](https://docs.browsertrix.com/user-guide/collection/), and [Crawl Workflow Settings](https://docs.browsertrix.com/user-guide/workflow-setup/).
+
+### 5a) Org
+
+| | |
+|---|---|
+| **Org name** | ICAEW |
+
+### 5b) Create the shared browser profile
+
+Every crawl below reuses one browser profile so cookie/consent state only has to be set up once. From **Browser Profiles → New Browser Profile**:
+
+| Field | Value |
+|---|---|
+| Primary Site URL | `https://www.icaew.com` |
+| Profile Name | `ICAEW (Public)` |
+
+Click **Start Browser** to launch the interactive embedded session, then, per the docs' guidance to use this session for anything a real visitor would need to do once (log in, accept cookies, dismiss popups) before saving:
+
+1. **Disable Brave Shields** for the site (via the shield icon in the embedded browser's URL toolbar) — the embedded browser is Chromium/Brave-based, and Shields' ad/tracker blocking can suppress third-party resources a real visitor's browser would load, so leave it off for a faithful capture.
+2. Navigate to [`https://www.icaew.com/students/getting-started`](https://www.icaew.com/students/getting-started) (or any page that shows a brightcove video, they might need to be checked for cookie acceptance buttons) and click **Allow all cookies**.
+3. **✕** dismiss any other banners/popups (newsletter prompts, app nags, etc.) that appear.
+4. Click **Create Profile** to save it as `ICAEW (Public)` — this is a public/anonymous profile, no login involved.
+
+### 5c) Create one collection per source
+
+Each source gets its own **Collection** ([Collections → New Collection](https://docs.browsertrix.com/user-guide/collection/)) — just a name at creation time; items get populated automatically via each workflow's **Auto-Add to Collection** setting rather than added by hand.
+
+| Collection | Source URL | Frequency | Schedule |
+|---|---|---|---|
+| ICAEW.com [Homepage] | <https://www.icaew.com/> | Weekly | Every Saturday, 6:00 PM GMT+1 |
+| By All Accounts | <https://www.icaew.com/technical/corporate-reporting/corporate-reporting-resources/by-all-accounts> | Monthly | **TBD** — day-of-month/time not yet decided |
+| Taxline | <https://www.icaew.com/technical/tax/tax-faculty/taxline> | Monthly | **TBD** — day-of-month/time not yet decided |
+
+> The two monthly schedules are still open — pick a day-of-month and time before creating those two workflows' schedules in 5d.
+
+### 5d) Create a crawl workflow per collection
+
+General steps for each, from **Crawling → Workflows → New Workflow**:
+
+1. **Scope → Crawl Scope:** `Single Page`, **URL to Crawl:** the source URL from the table above.
+2. **Page Behavior → Custom Behaviors → Source:** `URL`, pointing at the shared ICAEW behaviors script:
+   `https://raw.githubusercontent.com/icaew-digital-archive/digital-archiving-scripts/refs/heads/main/web%20crawling/browsertrix-crawler%20files%20and%20scripts/icaew-com-behaviors-v4.js`
+3. **Browser Settings → Browser Profile:** `ICAEW (Public)`, **Browser Windows:** `1`.
+4. **Scheduling:** set to that collection's frequency from the table above.
+5. **Collections → Auto-Add to Collection:** the matching collection from 5c.
+6. Save.
+
+The **ICAEW.com [Homepage]** workflow is fully specified and confirmed — use it as the template for the other two, adjusting the URL, schedule, and collection:
+
+| Section | Setting | Value |
+|---|---|---|
+| **Scope** | Crawl Scope | Single Page |
+| | URL to Crawl | `https://www.icaew.com/` |
+| | Use Smart Scoping Rules | Yes |
+| | Include Directly Linked Pages | No |
+| | Custom Exclusion Rules | None |
+| **Crawl Limits** | Max Pages | 50,000 pages (default) |
+| | Crawl Time Limit | Unlimited (default) |
+| | Crawl Size Limit | Unlimited (default) |
+| **Page Behavior** | Page Behavior | Autoscroll |
+| | Custom Behaviors → Source | URL |
+| | Script Location | `icaew-com-behaviors-v4.js` (link above) |
+| | Page Load Limit | 2 minutes (default) |
+| | Delay After Page Load | 0 seconds (default) |
+| | Behavior Limit | 5 minutes (default) |
+| | Delay Before Next Page | 0 seconds (default) |
+| **Browser Settings** | Browser Profile | ICAEW.com (Public) |
+| | Fail Crawl if Not Logged In | No |
+| | Include Browser Storage Data | No |
+| | Browser Windows | 1 |
+| | Crawler Channel | Default |
+| | Block Ads by Domain | No |
+| | User Agent | Browser User Agent (default) |
+| | Language | English |
+| **Scheduling** | Crawl Schedule Type | Run on a Recurring Basis |
+| | Schedule | Every Saturday at 6:00 PM GMT+1 |
+| **Deduplication** | Crawl Deduplication | Disabled |
+| **Collections** | Auto-Add to Collection | ICAEW.com [Homepage] |
+| **Metadata** | Name / Description / Tags | Not specified |
+
+> **Open question for By All Accounts and Taxline:** both are hub/index pages that link out to that period's articles, unlike the flat homepage. Decide whether **Include Directly Linked Pages** should be `Yes` for these two (to also capture the linked articles each run) before creating them — left as `No`/single-page-only will only snapshot the index page itself, not its linked content.
+
 ---
 
 ## Notes / decisions so far
@@ -309,3 +394,5 @@ doctl compute droplet list   # requires doctl CLI + auth; alternatively just che
 ```
 
 Confirms the droplet no longer appears in your account.
+
+
