@@ -1,12 +1,12 @@
 # sitemap tools
 
-Utilities for monitoring XML sitemaps and extracting URLs from them.
+Utilities for monitoring XML sitemaps and extracting URLs from them. Requires `requests` (`pip install requests`).
 
 ---
 
 ## `sitemap_monitor.py`
 
-Monitor one or more XML sitemaps for changes. On first run, saves a baseline snapshot (`sitemap_memory.json`). On subsequent runs, compares against the snapshot and reports new and removed URLs.
+Monitor one or more XML sitemaps for changes. On first run, saves a baseline snapshot (`sitemap_memory.json`, in the current directory). On subsequent runs, compares against the snapshot and reports new and removed URLs.
 
 ```bash
 python sitemap_monitor.py --sitemap <URL> [<URL>...] [options]
@@ -37,8 +37,8 @@ python sitemap_xml_to_txt_or_html.py <sitemap> [<sitemap>...] [options]
 | `sitemap_input` | Sitemap file(s) or URL(s) (positional) |
 | `--contains_strings` | Keep only URLs containing any of these strings (OR logic) |
 | `--exclude_strings` | Remove URLs containing any of these strings |
-| `--to_file` | Save output to a `.txt` file |
-| `--to_html` | Save output to an `.html` file |
+| `--to_file PATH` | Save output to a `.txt` file |
+| `--to_html PATH` | Save output to an `.html` file |
 | `--deduplicate` | Remove duplicate URLs |
 
 Without `--to_file` or `--to_html`, URLs are printed to stdout.
