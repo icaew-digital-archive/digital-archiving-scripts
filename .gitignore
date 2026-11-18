@@ -28,6 +28,7 @@ MANIFEST
 
 # Ignore files
 *.txt
+!requirements.txt
 *.csv
 *.zip
 *.pdf
