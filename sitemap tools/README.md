@@ -47,4 +47,4 @@ Without `--to_file` or `--to_html`, URLs are printed to stdout.
 
 ## `python_emailer.py`
 
-Calls `sitemap_monitor.py` and emails the output. Configuration (email credentials, sitemap URLs, script path) is set directly in the file. Intended to be run on a schedule (e.g. cron).
+Calls `sitemap_monitor.py` and emails the output via the Gmail API. Configuration (sender, recipients, sitemap URLs) is set directly in the file; the Gmail token comes from `gmail_authorise.py`. Intended to be run on a schedule (e.g. cron) — see [SETUP.md](SETUP.md) for deploying to a droplet.
