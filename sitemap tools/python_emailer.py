@@ -67,7 +67,6 @@ if __name__ == "__main__":
     script_args = [
         '--sitemap',
         'https://www.icaew.com/sitemap_corporate.xml',
-        'https://www.icaew.com/sitemap_careers.xml',
         '--show-new'
     ]
 
